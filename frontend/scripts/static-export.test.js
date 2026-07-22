@@ -19,3 +19,12 @@ test('rep history is query-based so no build-time rep list is required', () => {
   assert.match(page, /useSearchParams/);
   assert.match(layout, /\/dashboard\/reps\?id=/);
 });
+
+test('public download page exposes versioned Windows release details', () => {
+  const page = read('src/app/download/page.tsx');
+  assert.match(page, /release\.downloadUrl/);
+  assert.match(page, /Windows 10 and Windows 11/);
+  assert.match(page, /Windows protected your PC/);
+  assert.match(page, /SHA-256/);
+  assert.equal(fs.existsSync(path.join(root, 'src/release.json')), true);
+});
