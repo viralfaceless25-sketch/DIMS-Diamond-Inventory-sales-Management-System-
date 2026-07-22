@@ -9,8 +9,8 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 test('desktop package and installer are versioned for the first release', () => {
   const pkg = JSON.parse(read('package.json'));
   const config = JSON.parse(read('src-tauri/tauri.conf.json'));
-  assert.equal(pkg.version, '1.0.0');
-  assert.equal(config.version, '1.0.0');
+  assert.equal(pkg.version, '1.0.1');
+  assert.equal(config.version, '1.0.1');
   assert.equal(config.productName, 'Diamond Inventory');
   assert.deepEqual(config.bundle.targets, ['nsis']);
 });
@@ -25,6 +25,7 @@ test('installer needs no admin rights and bootstraps WebView2 when missing', () 
   assert.equal(config.bundle.windows.nsis.installMode, 'currentUser');
   assert.equal(config.bundle.windows.webviewInstallMode.type, 'downloadBootstrapper');
   assert.equal(config.bundle.windows.webviewInstallMode.silent, true);
+  assert.equal(config.bundle.resources['bin/'], '');
   assert.match(read('src-tauri/installer-hooks.nsh'), /Call CreateOrUpdateDesktopShortcut/);
 });
 
@@ -40,5 +41,5 @@ test('remote inventory content receives no Tauri capabilities', () => {
   assert.match(main, /NewWindowResponse::Deny/);
   assert.doesNotMatch(main, /invoke_handler|plugin\(/);
   assert.match(sourceConfig, /https:\/\/maitri-inventory-web\.onrender\.com/);
-  assert.match(sourceConfig, /assert_eq!\(url\.scheme\(\), "https"/);
+  assert.match(sourceConfig, /assert_eq!\(\s*url\.scheme\(\),\s*"https"/s);
 });

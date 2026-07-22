@@ -27,6 +27,17 @@ try {
     if ($metadata.sha256 -ne $expectedHash) { throw 'Release checksum does not match.' }
     if ($metadata.downloadUrl -ne '/downloads/DiamondInventory-Setup-9.8.7.exe') { throw 'Release URL does not match.' }
 
+    & $publisher -InstallerPath $sourceInstaller -Version '9.8.7' -OutputRoot $outputRoot
+    [System.IO.File]::WriteAllBytes($sourceInstaller, [byte[]](9, 9, 9, 9))
+    $overwriteRejected = $false
+    try {
+        & $publisher -InstallerPath $sourceInstaller -Version '9.8.7' -OutputRoot $outputRoot
+    } catch {
+        $overwriteRejected = $_.Exception.Message -match 'already exists with different bytes'
+    }
+    if (-not $overwriteRejected) { throw 'Publisher allowed an existing version to be overwritten with different bytes.' }
+    [System.IO.File]::WriteAllBytes($sourceInstaller, [byte[]](1, 3, 3, 7))
+
     $copiedScripts = Join-Path $defaultRoot 'scripts'
     New-Item -ItemType Directory -Path $copiedScripts -Force | Out-Null
     $copiedPublisher = Join-Path $copiedScripts 'publish-windows-installer.ps1'

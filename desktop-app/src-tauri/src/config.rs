@@ -16,8 +16,7 @@ pub fn production_url() -> tauri::Url {
 }
 
 pub fn is_allowed_navigation(url: &tauri::Url) -> bool {
-    let production = production_url();
-    url.scheme() == "https" && url.host_str() == production.host_str()
+    url.scheme() == "https" && url.origin() == production_url().origin()
 }
 
 pub fn is_allowed_popup(url: &tauri::Url) -> bool {
@@ -45,6 +44,9 @@ mod tests {
         ));
         assert!(!is_allowed_navigation(
             &tauri::Url::parse("http://maitri-inventory-web.onrender.com/").unwrap()
+        ));
+        assert!(!is_allowed_navigation(
+            &tauri::Url::parse("https://maitri-inventory-web.onrender.com:444/").unwrap()
         ));
     }
 

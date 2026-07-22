@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { api } from './api';
+import { api, getToken } from './api';
 
 // Subscribes to real-time events for a branch. `onEvent` is called with the
 // event name and payload for any of the backend's broadcast events. The
@@ -16,7 +16,10 @@ export function useBranchSocket(
   handlerRef.current = onEvent;
 
   useEffect(() => {
-    const socket = io(api.apiUrl, { transports: ['websocket', 'polling'] });
+    const socket = io(api.apiUrl, {
+      transports: ['websocket', 'polling'],
+      auth: { token: getToken() },
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {

@@ -23,10 +23,18 @@ $metadataPath = Join-Path $metadataDirectory 'release.json'
 
 New-Item -ItemType Directory -Path $downloadDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $metadataDirectory -Force | Out-Null
-Copy-Item -LiteralPath $resolvedInstaller -Destination $publishedInstaller -Force
+$sourceChecksum = (Get-FileHash -LiteralPath $resolvedInstaller -Algorithm SHA256).Hash
+if (Test-Path -LiteralPath $publishedInstaller) {
+    $existingChecksum = (Get-FileHash -LiteralPath $publishedInstaller -Algorithm SHA256).Hash
+    if ($existingChecksum -ne $sourceChecksum) {
+        throw "$fileName already exists with different bytes. Increment the release version instead of overwriting it."
+    }
+} else {
+    Copy-Item -LiteralPath $resolvedInstaller -Destination $publishedInstaller
+}
 
 $publishedFile = Get-Item -LiteralPath $publishedInstaller
-$checksum = (Get-FileHash -LiteralPath $publishedInstaller -Algorithm SHA256).Hash
+$checksum = $sourceChecksum
 $metadata = [ordered]@{
     version = $Version
     fileName = $fileName

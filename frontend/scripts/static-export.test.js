@@ -19,6 +19,7 @@ test('rep history is query-based so no build-time rep list is required', () => {
   const layout = read('src/app/dashboard/layout.tsx');
   assert.match(page, /useSearchParams/);
   assert.match(layout, /\/dashboard\/reps\?id=/);
+  assert.match(layout, /selectedRepId\s*===\s*String\(rep\.id\)/);
 });
 
 test('public download page exposes versioned Windows release details', () => {

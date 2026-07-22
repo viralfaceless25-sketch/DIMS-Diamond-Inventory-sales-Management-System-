@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Diamond Inventory",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.maitridiamonds.inventory",
   "build": {
     "frontendDist": "../placeholder"
@@ -16,6 +16,9 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": {
+      "bin/": ""
+    },
     "publisher": "Maitri Diamonds",
     "copyright": "Copyright 2026 Maitri Diamonds",
     "windows": {

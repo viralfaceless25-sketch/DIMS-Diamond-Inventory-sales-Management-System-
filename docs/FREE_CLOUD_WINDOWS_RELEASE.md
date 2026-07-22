@@ -25,8 +25,8 @@ Build the desktop app with `DIAMOND_INVENTORY_WEB_URL` set to the final HTTPS we
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-windows-installer.ps1 `
-  -InstallerPath 'desktop-app\src-tauri\target\release\bundle\nsis\Diamond Inventory_1.0.0_x64-setup.exe' `
-  -Version '1.0.0'
+  -InstallerPath 'desktop-app\src-tauri\target\release\bundle\nsis\Diamond Inventory_1.0.1_x64-setup.exe' `
+  -Version '1.0.1'
 ```
 
 The publisher copies the installer to `frontend/public/downloads`, gives it a stable versioned filename, and regenerates `frontend/src/release.json` with its byte size and SHA-256 checksum. Commit both files and redeploy the static site. Never overwrite a published version with different bytes; increment the version instead.
@@ -86,11 +86,13 @@ Run this query weekly in Supabase SQL Editor:
 
 ```sql
 select pg_database_size(current_database()) as bytes,
-       pg_size_pretty(pg_database_size(current_database())) as readable_size;
+       pg_size_pretty(pg_database_size(current_database())) as readable_size,
+       pg_total_relation_size('request_shipping_labels') as label_bytes,
+       pg_size_pretty(pg_total_relation_size('request_shipping_labels')) as label_size;
 ```
 
 - Warn the owner at 400 MB and schedule a paid-plan move. Supabase Free enters read-only mode above the 500 MB database quota.
-- Check Supabase storage usage before 800 MB; the Free file-storage allowance is 1 GB.
+- Shipping-label PDFs/images are stored in Postgres, not Supabase Storage. Alert at 50 MB of `label_bytes`, review retention before 100 MB, and include this table in every backup/restore drill.
 - Check Render's monthly included usage and deployment logs weekly. A free web service has a shared 750-hour workspace allowance and may restart.
 - Upgrade the Render API when one-minute cold starts, restarts, or free-tier availability are unacceptable for daily work.
 - Upgrade Supabase before 500 MB, before automatic backups become operationally necessary, or when a one-week inactivity pause is unacceptable.
@@ -107,7 +109,7 @@ select pg_database_size(current_database()) as bytes,
 
 - Backend tests, frontend tests, Rust tests, desktop configuration tests, and static production build pass.
 - Installer SHA-256 matches `frontend/src/release.json` and the deployed download.
-- Fresh current-user install creates Start menu and desktop shortcuts without requiring Node.js, Rust, or PostgreSQL.
+- Fresh current-user install creates Start menu and desktop shortcuts, installs `libunwind.dll` and `WebView2Loader.dll` beside the EXE, and launches without requiring Node.js, Rust, or PostgreSQL.
 - Login, stock read, request workflow, tracking, rep history, Socket.IO, and upload controls work against production.
 - Secrets scan finds no database password, JWT, certificate, or private key in tracked files.
 - A current off-site backup exists and the most recent monthly restore drill passed.

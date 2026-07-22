@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRequireRole, useAuth } from '@/lib/auth';
@@ -26,6 +26,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { logout } = useAuth();
   const { theme: t, name, toggle } = useTheme();
   const pathname = usePathname();
+  const selectedRepId = useSearchParams().get('id');
   const [reps, setReps] = useState<{ id: number; name: string; branch: string }[]>([]);
 
   useEffect(() => {
@@ -71,7 +72,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 if (!branchReps.length) return null;
                 return <div key={branch} style={{ marginTop: 9 }}>
                   <div style={{ font: "700 9.5px 'Inter'", color: ACCENT, marginBottom: 4 }}>{branch}</div>
-                  {branchReps.map((rep) => <Link key={rep.id} href={`/dashboard/reps?id=${rep.id}`} style={{ textDecoration: 'none', display: 'grid', gridTemplateColumns: '50px minmax(0,1fr)', alignItems: 'center', gap: 7, padding: '6px 5px', borderRadius: 6, background: pathname === '/dashboard/reps' ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
+                  {branchReps.map((rep) => <Link key={rep.id} href={`/dashboard/reps?id=${rep.id}`} style={{ textDecoration: 'none', display: 'grid', gridTemplateColumns: '50px minmax(0,1fr)', alignItems: 'center', gap: 7, padding: '6px 5px', borderRadius: 6, background: pathname === '/dashboard/reps' && selectedRepId === String(rep.id) ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
                     <span style={{ font: "800 10px Arial, sans-serif", color: repColor(rep.name) }}>{ROSTER_LABELS[rep.name] || rep.name}</span>
                     <span style={{ font: "600 11px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rep.name}</span>
                   </Link>)}
