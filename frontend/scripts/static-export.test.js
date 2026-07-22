@@ -10,6 +10,7 @@ test('Next produces a static export with stable directory URLs', () => {
   const config = read('next.config.mjs');
   assert.match(config, /output:\s*['"]export['"]/);
   assert.match(config, /trailingSlash:\s*true/);
+  assert.match(config, /outputFileTracingRoot:\s*process\.cwd\(\)/);
 });
 
 test('rep history is query-based so no build-time rep list is required', () => {
