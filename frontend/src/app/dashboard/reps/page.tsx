@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, MyRequest, RequestStone } from '@/lib/api';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
@@ -10,9 +10,17 @@ import { ACCENT, repColor } from '@/lib/theme';
 import { fmtCarat, timeAgo } from '@/lib/utils';
 
 export default function RepHistoryPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 50, textAlign: 'center' }}>Loading...</div>}>
+      <RepHistoryContent />
+    </Suspense>
+  );
+}
+
+function RepHistoryContent() {
   const { theme: t } = useTheme();
-  const params = useParams<{ id: string }>();
-  const repId = Number(params.id);
+  const searchParams = useSearchParams();
+  const repId = Number(searchParams.get('id'));
   const [reps, setReps] = useState<{ id: number; name: string; branch: string }[]>([]);
   const [requests, setRequests] = useState<MyRequest[]>([]);
   const [loading, setLoading] = useState(true);

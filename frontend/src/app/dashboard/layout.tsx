@@ -71,7 +71,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 if (!branchReps.length) return null;
                 return <div key={branch} style={{ marginTop: 9 }}>
                   <div style={{ font: "700 9.5px 'Inter'", color: ACCENT, marginBottom: 4 }}>{branch}</div>
-                  {branchReps.map((rep) => <Link key={rep.id} href={`/dashboard/reps/${rep.id}`} style={{ textDecoration: 'none', display: 'grid', gridTemplateColumns: '50px minmax(0,1fr)', alignItems: 'center', gap: 7, padding: '6px 5px', borderRadius: 6, background: pathname === `/dashboard/reps/${rep.id}` ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
+                  {branchReps.map((rep) => <Link key={rep.id} href={`/dashboard/reps?id=${rep.id}`} style={{ textDecoration: 'none', display: 'grid', gridTemplateColumns: '50px minmax(0,1fr)', alignItems: 'center', gap: 7, padding: '6px 5px', borderRadius: 6, background: pathname === '/dashboard/reps' ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
                     <span style={{ font: "800 10px Arial, sans-serif", color: repColor(rep.name) }}>{ROSTER_LABELS[rep.name] || rep.name}</span>
                     <span style={{ font: "600 11px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rep.name}</span>
                   </Link>)}

@@ -7,7 +7,8 @@
     "dev:lan": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "node scripts/start.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test scripts/*.test.js"
   },
   "dependencies": {
     "next": "^14.2.35",
