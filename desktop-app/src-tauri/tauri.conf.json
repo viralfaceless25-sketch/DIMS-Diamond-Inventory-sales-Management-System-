@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Diamond Inventory",
+  "version": "1.0.0",
+  "identifier": "com.maitridiamonds.inventory",
+  "build": {
+    "frontendDist": "../placeholder"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null,
+      "capabilities": []
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Maitri Diamonds",
+    "copyright": "Copyright 2026 Maitri Diamonds",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./installer-hooks.nsh",
+        "startMenuFolder": "Maitri Diamonds"
+      }
+    }
+  }
+}
