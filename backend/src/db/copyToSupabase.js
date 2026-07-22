@@ -73,14 +73,11 @@ function createPool(connectionString, caPath) {
 }
 
 async function runCopy(env = process.env) {
-  // The live database already uses DATABASE_URL. SOURCE_DATABASE_URL remains
-  // available for an explicit source override during one-time migrations.
-  const sourceDatabaseUrl = env.SOURCE_DATABASE_URL || env.DATABASE_URL;
-  if (!sourceDatabaseUrl || !env.SUPABASE_DATABASE_URL) {
-    throw new Error('DATABASE_URL (or SOURCE_DATABASE_URL) and SUPABASE_DATABASE_URL are required');
+  if (!env.SOURCE_DATABASE_URL || !env.SUPABASE_DATABASE_URL) {
+    throw new Error('SOURCE_DATABASE_URL and SUPABASE_DATABASE_URL are required');
   }
-  const source = createPool(sourceDatabaseUrl, env.SOURCE_DATABASE_SSL_CA_PATH || env.DATABASE_SSL_CA_PATH);
-  const target = createPool(env.SUPABASE_DATABASE_URL, env.SUPABASE_DATABASE_SSL_CA_PATH);
+  const source = createPool(env.SOURCE_DATABASE_URL, env.SOURCE_DATABASE_SSL_CA_PATH || env.DATABASE_SSL_CA_PATH);
+  const target = createPool(env.SUPABASE_DATABASE_URL);
   try {
     const sourceCounts = await tableCounts(source);
     if (env.DRY_RUN === 'true') return { dryRun: true, sourceCounts };
