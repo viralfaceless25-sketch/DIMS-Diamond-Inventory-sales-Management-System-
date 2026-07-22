@@ -2,7 +2,7 @@ services:
   - type: web
     name: maitri-inventory-api
     runtime: node
-    plan: starter
+    plan: free
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
@@ -22,19 +22,15 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        sync: false
+        value: https://maitri-inventory-web.onrender.com
 
   - type: web
     name: maitri-inventory-web
-    runtime: node
-    plan: starter
+    runtime: static
     rootDir: frontend
     buildCommand: npm ci && npm run build
-    startCommand: npm start
-    healthCheckPath: /login
+    staticPublishPath: ./out
     autoDeployTrigger: commit
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: NEXT_PUBLIC_API_URL
-        sync: false
+        value: https://maitri-inventory-api.onrender.com
