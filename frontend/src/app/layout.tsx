@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
+import { ApiReadinessGate } from '@/components/ApiReadinessGate';
+import { api } from '@/lib/api';
 
 export const metadata: Metadata = {
   title: 'Diamond ERP',
@@ -11,7 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <ApiReadinessGate apiUrl={api.apiUrl}>
+          <AuthProvider>{children}</AuthProvider>
+        </ApiReadinessGate>
       </body>
     </html>
   );

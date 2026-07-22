@@ -7,6 +7,10 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+@keyframes server-wake-spin {
+  to { transform: rotate(360deg); }
+}
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #2a332f; border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
