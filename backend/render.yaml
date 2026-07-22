@@ -1,0 +1,25 @@
+# Legacy backend-only Blueprint. Use the repository-root render.yaml to deploy
+# the complete production system (API and frontend) together.
+services:
+  - type: web
+    name: maitri-inventory-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_PROVIDER
+        value: supabase
+      - key: DATABASE_POOL_MAX
+        value: "5"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false

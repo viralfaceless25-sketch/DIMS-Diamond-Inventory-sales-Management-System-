@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+.env.*
+!.env.example
+supabase-copy.env
+*.pem
+*.crt
+*.key
+*.sql.gz
+*.dump
+uploads/

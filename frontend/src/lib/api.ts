@@ -1,0 +1,485 @@
+// Typed client for the backend API. Every call attaches the JWT from the
+// auth store. On a 401 it clears the session so the app bounces to /login.
+
+function defaultApiUrl() {
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:4000`;
+  }
+  return 'http://localhost:4000';
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || defaultApiUrl();
+
+// ---- Types (mirror the backend response shapes) ----
+
+export type Role = 'sales_rep' | 'inventory' | 'admin';
+
+export interface User {
+  id: number;
+  email: string;
+  role: Role;
+  salesRepId: number | null;
+  name: string | null;
+  branch: string | null;
+  mustChangePassword: boolean;
+}
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  role: Role;
+  salesRepId: number | null;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  lockedUntil: string | null;
+  createdAt: string;
+  repName: string | null;
+  branch: string | null;
+}
+
+export interface Availability {
+  status: 'in_stock' | 'requested' | 'conflict' | 'on_memo' | 'on_hold' | string;
+  label?: string;
+  repName?: string;
+  repCount?: number;
+  holders?: { requestId: number; repId: number; repName: string }[];
+}
+
+export interface LooseStone {
+  barcode: string;
+  branch: string;
+  lab: string | null;
+  certificate_no: string | null;
+  shape: string | null;
+  carat: number | string | null;
+  color: string | null;
+  clarity: string | null;
+  cut: string | null;
+  polish: string | null;
+  symmetry: string | null;
+  length_mm: number | string | null;
+  width_mm: number | string | null;
+  height_mm: number | string | null;
+  lw_ratio: number | string | null;
+  stock_status?: string | null;
+  cost?: number | string | null;
+  availability: Availability;
+}
+
+export interface JewelryPiece {
+  barcode: string;
+  branch: string;
+  img_link?: string | null;
+  video_link?: string | null;
+  category: string | null;
+  item: string | null;
+  ref_no?: string | null;
+  metal: string | null;
+  metal_weight: number | string | null;
+  gross_weight?: number | string | null;
+  diamond_cts: number | string | null;
+  diamond_pcs: number | null;
+  diamond_size?: string | null;
+  lab: string | null;
+  cert_no: string | null;
+  stock_status?: string | null;
+  amount: number | string | null;
+  availability: Availability;
+}
+
+export interface RequestStone {
+  id: number;
+  request_id: number;
+  barcode: string;
+  item_type: 'loose' | 'jewelry';
+  stone_found: boolean;
+  cert_found: boolean;
+  returned: boolean;
+  shape: string | null;
+  carat: number | string | null;
+  color: string | null;
+  clarity: string | null;
+  cert_no: string | null;
+  category: string | null;
+  item: string | null;
+  duplicate?: boolean;
+  duplicateWith?: string[];
+}
+
+export type BatchStatus = 'awaiting' | 'half_fulfilled' | 'fulfilled';
+
+export interface RequestSummary {
+  id: number;
+  branch: string;
+  fulfillmentBranch: string;
+  deliveryBranch: string;
+  crossBranch: boolean;
+  deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
+  paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
+  transferStatus: string | null;
+  resolutionConfirmed: boolean;
+  hasLabel?: boolean;
+  requestedAt: string;
+  status: BatchStatus;
+  source: string;
+  requestScope: 'stone_and_cert' | 'stone_only' | 'cert_only';
+  requestType: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
+  dropoffCompany: string | null;
+  dropoffAddress: string | null;
+  rep: { id: number; name: string };
+  stoneCount: number;
+  hasDuplicate: boolean;
+}
+
+export interface RequestDetail {
+  id: number;
+  branch: string;
+  fulfillmentBranch: string;
+  deliveryBranch: string;
+  crossBranch: boolean;
+  deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
+  paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
+  transferStatus: string | null;
+  resolutionConfirmed: boolean;
+  hasLabel?: boolean;
+  requestedAt: string;
+  status: BatchStatus;
+  source: string;
+  requestScope: 'stone_and_cert' | 'stone_only' | 'cert_only';
+  requestType: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
+  dropoffCompany: string | null;
+  dropoffAddress: string | null;
+  rep: { id: number; name: string };
+  stones: RequestStone[];
+}
+
+export interface MyRequest {
+  id: number;
+  branch: string;
+  fulfillmentBranch?: string;
+  deliveryBranch?: string;
+  crossBranch?: boolean;
+  deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
+  paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
+  transferStatus?: string | null;
+  resolutionConfirmed?: boolean;
+  hasLabel?: boolean;
+  requestedAt: string;
+  status: BatchStatus;
+  requestScope?: 'stone_and_cert' | 'stone_only' | 'cert_only';
+  requestType?: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
+  dropoffCompany?: string | null;
+  dropoffAddress?: string | null;
+  stones: RequestStone[];
+}
+
+export interface Paginated<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface RequestStats {
+  pendingRequests: number;
+  stonesRequested: number;
+  duplicateFlags: number;
+  fulfilledRequests: number;
+}
+
+export interface StockQuery {
+  branch: string;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  barcode?: string;
+  cert?: string;
+  ref?: string;
+  shape?: string;
+  lab?: string;
+  shapes?: string[];
+  labs?: string[];
+  categories?: string[];
+  metals?: string[];
+  goldColors?: string[];
+  purities?: string[];
+  caratMin?: string;
+  caratMax?: string;
+  colors?: string[];
+  clarities?: string[];
+  statuses?: string[];
+  requestableOnly?: boolean;
+}
+
+function stockParams(q: StockQuery): string {
+  const p = new URLSearchParams({ branch: q.branch });
+  if (q.page) p.set('page', String(q.page));
+  if (q.pageSize) p.set('pageSize', String(q.pageSize));
+  if (q.search) p.set('search', q.search);
+  if (q.barcode) p.set('barcode', q.barcode);
+  if (q.cert) p.set('cert', q.cert);
+  if (q.ref) p.set('ref', q.ref);
+  if (q.shape) p.set('shape', q.shape);
+  if (q.lab) p.set('lab', q.lab);
+  if (q.shapes && q.shapes.length) p.set('shapes', q.shapes.join(','));
+  if (q.labs && q.labs.length) p.set('labs', q.labs.join(','));
+  if (q.categories && q.categories.length) p.set('categories', q.categories.join(','));
+  if (q.metals && q.metals.length) p.set('metals', q.metals.join(','));
+  if (q.goldColors && q.goldColors.length) p.set('goldColors', q.goldColors.join(','));
+  if (q.purities && q.purities.length) p.set('purities', q.purities.join(','));
+  if (q.caratMin) p.set('caratMin', q.caratMin);
+  if (q.caratMax) p.set('caratMax', q.caratMax);
+  if (q.colors && q.colors.length) p.set('colors', q.colors.join(','));
+  if (q.clarities && q.clarities.length) p.set('clarities', q.clarities.join(','));
+  if (q.statuses && q.statuses.length) p.set('statuses', q.statuses.join(','));
+  if (q.requestableOnly) p.set('requestableOnly', 'true');
+  return p.toString();
+}
+
+export interface TrackingRow {
+  id: number;
+  barcode: string;
+  stone_found: boolean;
+  cert_found: boolean;
+  returned: boolean;
+  request_id: number;
+  branch: string;
+  requested_at: string;
+  rep_name: string;
+  cert_no: string | null;
+  trackingStatus: 'requested' | 'partially_given' | 'with_rep' | 'returned';
+}
+
+export interface TrackingPage {
+  rows: TrackingRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ExtractedStone {
+  barcode: string;
+  shape: string | null;
+  carat: number | null;
+  color: string | null;
+  clarity: string | null;
+  certificate_no: string | null;
+  item_type: 'loose' | 'jewelry';
+  source: 'inventory' | 'invoice';
+  available: boolean;
+  reason?: 'not_in_stock' | 'wrong_branch' | 'on_memo' | 'on_hold' | string;
+  stockBranch?: string | null;
+  stock_status?: string | null;
+  availabilityLabel?: string | null;
+  confidence?: 'high' | 'low';
+  branch?: string;
+}
+
+export interface ExtractResult {
+  stones: ExtractedStone[];
+  totalDetected?: number;
+  availableCount?: number;
+  unavailableCount?: number;
+  unavailable?: { barcode: string; reason: string; stockBranch: string | null }[];
+  warning?: string;
+}
+
+// ---- Token storage (localStorage; fine for a real app, unlike artifacts) ----
+
+const TOKEN_KEY = 'diamond_token';
+
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+export function setToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token);
+}
+export function clearToken() {
+  window.localStorage.removeItem(TOKEN_KEY);
+}
+
+// ---- Core fetch wrapper ----
+
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  isForm = false
+): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
+  if (!isForm) headers['Content-Type'] = 'application/json';
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+    throw new ApiError(401, 'Session expired');
+  }
+
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    throw new ApiError(res.status, data?.error || 'Request failed');
+  }
+  return data as T;
+}
+
+async function shippingLabelUrl(requestId: number): Promise<string> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/api/transfers/${requestId}/shipping-label`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = 'Could not open the shipping label';
+    try { message = JSON.parse(text)?.error || message; } catch { /* response is not JSON */ }
+    throw new ApiError(res.status, message);
+  }
+  return URL.createObjectURL(await res.blob());
+}
+
+// ---- Endpoints ----
+
+export const api = {
+  apiUrl: API_URL,
+
+  // auth
+  login: (email: string, password: string) =>
+    request<{ token: string; user: User }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<User>('/api/auth/me'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: true }>('/api/auth/change-password', {
+      method: 'POST', body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  logoutAll: () => request<{ ok: true }>('/api/auth/logout-all', { method: 'POST' }),
+
+  // admin
+  adminUsers: () => request<AdminUser[]>('/api/admin/users'),
+  createUser: (data: { email: string; password: string; role: Role; repName?: string; branch?: string }) =>
+    request<AdminUser>('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+  setUserActive: (id: number, isActive: boolean) =>
+    request<{ id: number; isActive: boolean }>(`/api/admin/users/${id}/status`, {
+      method: 'PATCH', body: JSON.stringify({ isActive }),
+    }),
+  resetUserPassword: (id: number, password: string) =>
+    request<{ ok: true }>(`/api/admin/users/${id}/reset-password`, {
+      method: 'POST', body: JSON.stringify({ password }),
+    }),
+
+  // branches / reps
+  branches: () => request<{ id: string; name: string }[]>('/api/branches'),
+  reps: () => request<{ id: number; name: string; branch: string }[]>('/api/reps'),
+
+  // stock
+  looseStock: (q: StockQuery) =>
+    request<Paginated<LooseStone>>(`/api/stock/loose?${stockParams(q)}`),
+  jewelryStock: (q: StockQuery) =>
+    request<Paginated<JewelryPiece>>(`/api/stock/jewelry?${stockParams(q)}`),
+  stockOptions: (branch: string, itemType: 'loose' | 'jewelry') =>
+    request<{ shapes: string[]; labs: string[]; categories: string[]; metals: string[]; statuses: string[] }>(
+      `/api/stock/options?branch=${encodeURIComponent(branch)}&itemType=${encodeURIComponent(itemType)}`
+    ),
+  uploadStock: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{
+      format: string;
+      branchesUpdated: string[];
+      rowsImported: number;
+      skippedBranches: string[];
+    }>('/api/stock/upload', { method: 'POST', body: form }, true);
+  },
+
+  // requests (inventory)
+  stats: (branch: string) =>
+    request<RequestStats>(`/api/requests/stats?branch=${encodeURIComponent(branch)}`),
+  requests: (params: { branch: string; view: string; sort: string; search?: string }) => {
+    const q = new URLSearchParams({
+      branch: params.branch,
+      view: params.view,
+      sort: params.sort,
+      ...(params.search ? { search: params.search } : {}),
+    });
+    return request<RequestSummary[]>(`/api/requests?${q.toString()}`);
+  },
+  requestDetail: (id: number) => request<RequestDetail>(`/api/requests/${id}`),
+  toggleStone: (requestId: number, stoneId: number, field: string, value: boolean) =>
+    request<{ id: number; status: BatchStatus; stones: RequestStone[] }>(
+      `/api/requests/${requestId}/stones/${stoneId}`,
+      { method: 'PATCH', body: JSON.stringify({ field, value }) }
+    ),
+  checkAll: (requestId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'returned') =>
+    request<{ id: number; status: BatchStatus; stones: RequestStone[] }>(
+      `/api/requests/${requestId}/check-all`,
+      { method: 'PATCH', body: JSON.stringify({ value, ...(field ? { field } : {}) }) }
+    ),
+  confirmResolution: (requestId: number) =>
+    request<{ id: number; status: BatchStatus; stones: RequestStone[]; resolutionConfirmed: true }>(
+      `/api/requests/${requestId}/confirm-resolution`,
+      { method: 'PATCH' }
+    ),
+
+  // requests (sales rep)
+  myRequests: (repId: number) => request<MyRequest[]>(`/api/requests/by-rep/${repId}`),
+  submitRequest: (
+    branch: string,
+    stones: { barcode: string; itemType: string }[],
+    source = 'manual',
+    options: {
+      requestScope?: 'stone_and_cert' | 'stone_only' | 'cert_only';
+      requestType?: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
+      dropoffCompany?: string;
+      dropoffAddress?: string;
+      fulfillmentBranch?: string;
+      deliveryBranch?: string;
+      deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff';
+      paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
+    } = {}
+  ) =>
+    request<{ id: number; branch: string; stones: RequestStone[]; status: BatchStatus }>(
+      '/api/requests',
+      { method: 'POST', body: JSON.stringify({ branch, stones, source, ...options }) }
+    ),
+  uploadShippingLabel: (requestId: number, file: File) => {
+    const form = new FormData(); form.append('label', file);
+    return request<{ ok: true; fileName: string }>(`/api/transfers/${requestId}/shipping-label`, { method: 'POST', body: form }, true);
+  },
+  setPaperworkType: (requestId: number, paperworkType: 'none' | 'invoice' | 'memo') =>
+    request<{ ok: true; paperworkType: 'none' | 'invoice' | 'memo' }>(`/api/transfers/${requestId}/paperwork`, { method: 'PATCH', body: JSON.stringify({ paperworkType }) }),
+  shippingLabelUrl,
+  setTransferStatus: (requestId: number, action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer') =>
+    request<{ transferStatus: string }>(`/api/transfers/${requestId}/status`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+
+  // tracking (inventory)
+  tracking: (branch: string, search?: string, page = 1) => {
+    const q = new URLSearchParams({ branch, page: String(page), pageSize: '100', ...(search ? { search } : {}) });
+    return request<TrackingPage>(`/api/tracking?${q.toString()}`);
+  },
+
+  // invoice (sales rep)
+  extractInvoice: (file: File, branch?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (branch) form.append('branch', branch);
+    return request<ExtractResult>('/api/invoice/extract', { method: 'POST', body: form }, true);
+  },
+};
+
+export { ApiError };

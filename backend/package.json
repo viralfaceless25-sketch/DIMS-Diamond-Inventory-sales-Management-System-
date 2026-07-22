@@ -1,0 +1,33 @@
+{
+  "name": "diamond-inventory-backend",
+  "version": "1.0.0",
+  "description": "Shared backend (API + real-time sync) for the Diamond Dashboard and Sales Rep Request apps",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "dev:lan": "node --watch src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "migrate:supabase": "node src/db/migrateSupabase.js",
+    "migrate:to-supabase": "node src/db/copyToSupabase.js",
+    "switch:to-supabase": "node src/db/switchToSupabase.js",
+    "seed:users": "node src/db/seedUsers.js",
+    "seed:admin": "node src/db/seedAdmin.js",
+    "seed:staff": "node src/db/seedStaff.js",
+    "import:current-stock": "node src/db/importCurrentStock.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^2.0.1",
+    "pdfjs-dist": "^4.10.38",
+    "pg": "^8.12.0",
+    "socket.io": "^4.7.5",
+    "xlsx": "^0.18.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

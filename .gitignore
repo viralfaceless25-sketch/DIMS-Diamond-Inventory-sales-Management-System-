@@ -1,0 +1,42 @@
+node_modules/
+**/node_modules/
+
+# Local secrets and provider credentials
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+!**/*.env.example
+certs/
+*.pem
+*.crt
+*.key
+*.sql.gz
+*.dump
+
+# Framework and compiler output
+.next/
+**/.next/
+out/
+**/out/
+desktop-app/src-tauri/target/
+__pycache__/
+*.pyc
+
+# Runtime files
+uploads/
+*.log
+tmp/
+output/
+
+# Local tools, archives, and extracted handoffs
+tools/
+*.zip
+DiamondInventory-Handoff-*/
+*HANDOFF*.md
+FINAL_HANDOFF*.md
+
+# Isolated feature worktrees
+.worktrees/
