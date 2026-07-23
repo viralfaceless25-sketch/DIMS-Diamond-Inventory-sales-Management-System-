@@ -11,8 +11,11 @@ node_modules/
 !**/.env.*.example
 !**/*.env.example
 certs/
+!backend/certs/
+!backend/certs/supabase-root.crt
 *.pem
 *.crt
+!backend/certs/supabase-root.crt
 *.key
 *.sql.gz
 *.dump

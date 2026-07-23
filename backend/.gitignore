@@ -6,6 +6,7 @@ node_modules/
 supabase-copy.env
 *.pem
 *.crt
+!certs/supabase-root.crt
 *.key
 *.sql.gz
 *.dump
