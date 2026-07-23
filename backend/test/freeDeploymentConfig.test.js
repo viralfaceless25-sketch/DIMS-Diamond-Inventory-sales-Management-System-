@@ -13,11 +13,11 @@ function serviceBlock(name) {
   return renderConfig.slice(start, next === -1 ? undefined : next);
 }
 
-test('Render uses a free API with an exact readiness and browser origin contract', () => {
+test('Render uses process liveness for deploy health and keeps the exact browser origin contract', () => {
   const api = serviceBlock('maitri-inventory-api');
   assert.match(api, /\n    runtime: node\r?\n/);
   assert.match(api, /\n    plan: free\r?\n/);
-  assert.match(api, /\n    healthCheckPath: \/ready\r?\n/);
+  assert.match(api, /\n    healthCheckPath: \/health\r?\n/);
   assert.match(api, /key: CORS_ORIGIN\r?\n\s+value: https:\/\/maitri-inventory-web\.onrender\.com/);
 });
 

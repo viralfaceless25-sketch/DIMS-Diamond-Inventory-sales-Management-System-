@@ -6,7 +6,7 @@ services:
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
-    healthCheckPath: /ready
+    healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
