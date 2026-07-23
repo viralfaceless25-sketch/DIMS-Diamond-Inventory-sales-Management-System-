@@ -9,6 +9,7 @@ import { TopBar } from '@/components/TopBar';
 import { Check, StatusBadge, DuplicateBadge, Avatar } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
+import { hasDeliveryWorkflow } from '@/lib/requestWorkflow';
 
 const STONE_TABLE_COLS = '58px 58px 58px minmax(170px,1.35fr) minmax(150px,1fr) 96px 72px 88px minmax(170px,1fr)';
 
@@ -24,6 +25,7 @@ export default function RequestsPage() {
   const [expanded, setExpanded] = useState<Record<number, RequestDetail>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [scanMessage, setScanMessage] = useState('');
+  const [copiedBarcode, setCopiedBarcode] = useState('');
   const [loading, setLoading] = useState(true);
   const scannerBufferRef = useRef({ value: '', lastKeyAt: 0 });
   const scannerTimerRef = useRef<number | null>(null);
@@ -164,6 +166,29 @@ export default function RequestsPage() {
     catch (err) { window.alert(err instanceof Error ? err.message : 'Could not update this transfer.'); }
   }
 
+  async function confirmErpTransfer(requestId: number) {
+    if (!window.confirm('Confirm that the branch transfer has been entered in Maitri ERP.')) return;
+    try {
+      await api.confirmErpTransfer(requestId);
+      setExpanded((current) => current[requestId]
+        ? { ...current, [requestId]: { ...current[requestId], erpTransferConfirmed: true } }
+        : current);
+      await load();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not confirm the ERP branch transfer.');
+    }
+  }
+
+  async function copyBarcode(barcode: string) {
+    try {
+      await navigator.clipboard.writeText(barcode);
+      setCopiedBarcode(barcode);
+      window.setTimeout(() => setCopiedBarcode((current) => current === barcode ? '' : current), 1800);
+    } catch {
+      window.alert(`Could not copy ${barcode}. Select the barcode and copy it manually.`);
+    }
+  }
+
   async function openShippingLabel(requestId: number) {
     try {
       const url = await api.shippingLabelUrl(requestId);
@@ -175,11 +200,11 @@ export default function RequestsPage() {
   }
 
   function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer'; label: string } | null {
-    if (!r.crossBranch) return null;
+    if (!hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute)) return null;
     const status = r.transferStatus || 'awaiting_source';
     const isSource = user?.branch === r.fulfillmentBranch;
     const isDestination = user?.branch === r.deliveryBranch;
-    if (status === 'awaiting_source' && isSource) return { action: 'pack', label: 'Mark packed' };
+    if (status === 'awaiting_source' && isSource && (!r.crossBranch || r.erpTransferConfirmed)) return { action: 'pack', label: 'Mark packed' };
     if (status === 'packed' && r.deliveryRoute === 'internal_transfer' && isSource) return { action: 'ship', label: `Ship to ${r.branch}` };
     if (status === 'packed' && r.deliveryRoute === 'customer_ship' && itemsConfirmed && isSource) return { action: 'ship_customer', label: 'Ship to customer' };
     if (status === 'packed' && r.deliveryRoute === 'customer_dropoff' && itemsConfirmed && isSource) return { action: 'dropoff_customer', label: 'Mark dropped off' };
@@ -233,10 +258,13 @@ export default function RequestsPage() {
   }
 
   function canConfirmItems(r: RequestSummary) {
-    if (!r.crossBranch) return true;
     const status = r.transferStatus || 'awaiting_source';
+    if (r.deliveryRoute === 'customer_ship' || r.deliveryRoute === 'customer_dropoff') {
+      return user?.branch === r.fulfillmentBranch && status === 'packed';
+    }
+    if (!r.crossBranch) return true;
     if (r.deliveryRoute === 'internal_transfer') return user?.branch === r.branch && status === 'ready_for_rep';
-    return user?.branch === r.fulfillmentBranch && status === 'packed';
+    return false;
   }
 
   const statCards = [
@@ -318,7 +346,7 @@ export default function RequestsPage() {
                                   <RequestTypeBadge label={requestTypeLabel(r.requestType)} styleInfo={requestTypeStyle(r.requestType)} />
                                 </div>
                                 <div style={{ font: "500 11.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
-                                  {r.crossBranch ? `Cross branch: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')} - paperwork: ${r.paperworkType === 'pending' ? 'pending decision' : r.paperworkType === 'none' ? 'no paperwork' : r.paperworkType}` : requestScopeLabel(r.requestScope)} - {r.source === 'invoice_upload' ? 'via invoice' : 'manual'}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
+                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')} - paperwork: ${r.paperworkType === 'pending' ? 'pending decision' : r.paperworkType === 'none' ? 'no paperwork' : r.paperworkType}` : requestScopeLabel(r.requestScope)} - {r.source === 'invoice_upload' ? 'via invoice' : 'manual'}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
                                 </div>
                               </div>
                               <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>
@@ -326,8 +354,8 @@ export default function RequestsPage() {
                               <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.stoneCount} stone{r.stoneCount === 1 ? '' : 's'}</div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                                 <StatusBadge status={r.status} />
-                                {r.crossBranch && r.deliveryRoute === 'customer_ship' && r.paperworkType === 'pending' && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
-                                {r.crossBranch && r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
+                                {r.deliveryRoute === 'customer_ship' && r.paperworkType === 'pending' && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
+                                {r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
                                 {r.hasDuplicate && <DuplicateBadge reps={[]} />}
                               </div>
                             </div>
@@ -339,9 +367,12 @@ export default function RequestsPage() {
                                   <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>Scan a requested physical stone now. No field needs to be selected.</span>
                                   {scanMessage && <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{scanMessage}</span>}
                                 </div>
-                                {r.crossBranch && <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
+                                {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) && <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
                                   <span style={{ font: "700 12px 'Inter'", color: t.text }}>Transfer route: {r.fulfillmentBranch}{' -> '}{r.deliveryBranch}</span>
                                   <span style={{ font: "600 11px 'Inter'", color: t.textMuted }}>{r.deliveryRoute?.replaceAll('_', ' ')}</span>
+                                  {r.crossBranch && !r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && <span style={{ font: "800 10.5px 'Inter'", color: AMBER }}>ERP branch transfer required</span>}
+                                  {r.crossBranch && !r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && <button onClick={() => confirmErpTransfer(r.id)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: AMBER, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>Confirm ERP branch transfer completed</button>}
+                                  {r.crossBranch && r.erpTransferConfirmed && <span style={{ font: "800 10.5px 'Inter'", color: ACCENT }}>ERP BRANCH TRANSFER CONFIRMED</span>}
                                   {r.deliveryRoute === 'customer_ship' && r.hasLabel && <button onClick={() => openShippingLabel(r.id)} style={{ padding: '8px 12px', borderRadius: 7, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 11px 'Inter'" }}>Open shipping label</button>}
                                   {transferNext(r, allChecked) && <button onClick={() => updateTransfer(r.id, transferNext(r, allChecked)!.action)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>{transferNext(r, allChecked)!.label}</button>}
                                   {['packed', 'ready_for_rep'].includes(r.transferStatus || 'awaiting_source') && !allChecked && <span style={{ font: "700 11px 'Inter'", color: t.textFaint }}>Confirm required items below before final delivery.</span>}
@@ -360,6 +391,13 @@ export default function RequestsPage() {
                                     <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canConfirmItems(r)} accent="oklch(75% 0.13 250)" />
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</span>
+                                      <button
+                                        onClick={() => copyBarcode(s.barcode)}
+                                        title={`Copy ${s.barcode}`}
+                                        style={{ flex: 'none', padding: '4px 7px', borderRadius: 5, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: copiedBarcode === s.barcode ? ACCENT : t.textMuted, cursor: 'pointer', font: "700 9.5px 'Inter'" }}
+                                      >
+                                        {copiedBarcode === s.barcode ? 'Copied' : 'Copy barcode'}
+                                      </button>
                                       {s.duplicate && <span title={`Also held by: ${s.duplicateWith?.join(', ')}`} style={{ color: RED, flex: 'none' }}>!</span>}
                                     </div>
                                     <div style={{ font: "700 14px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.item_type === 'jewelry' ? (s.item || s.category || 'Jewelry') : (s.shape || '-')}</div>

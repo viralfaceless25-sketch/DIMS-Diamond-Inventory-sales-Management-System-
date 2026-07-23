@@ -5,6 +5,10 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { withTransaction } = require('../db/withRetry');
 const { getTransferAction } = require('../services/transferService');
 const { writeAudit } = require('../services/auditService');
+const {
+  movementForTransferAction,
+  recordRequestMovement,
+} = require('../services/movementService');
 const { broadcast } = require('../sockets');
 
 const router = express.Router();
@@ -28,16 +32,16 @@ async function getTransfer(requestId) {
   const { rows } = await pool.query(
     `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
             r.cross_branch, r.delivery_route, r.transfer_status, r.request_type,
-            r.dropoff_company, r.dropoff_address, r.paperwork_type,
+            r.dropoff_company, r.dropoff_address, r.paperwork_type, r.erp_transfer_confirmed,
             EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
      FROM requests r WHERE r.id = $1`, [requestId]
   );
   return rows[0] || null;
 }
 
-function assertCrossBranch(transfer) {
-  if (!transfer || !transfer.cross_branch || !transfer.fulfillment_branch || !transfer.delivery_route) {
-    const error = new Error('This is not a cross-branch request'); error.status = 400; throw error;
+function assertDeliveryWorkflow(transfer) {
+  if (!transfer || !transfer.fulfillment_branch || !transfer.delivery_route) {
+    const error = new Error('This request does not use a delivery workflow'); error.status = 400; throw error;
   }
 }
 
@@ -69,11 +73,12 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
       const { rows } = await client.query(
         `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
                 r.cross_branch, r.delivery_route, r.transfer_status, r.request_scope, r.resolution_confirmed, r.paperwork_type,
+                r.erp_transfer_confirmed,
                 EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
          FROM requests r WHERE r.id = $1 FOR UPDATE`, [requestId]
       );
       const transfer = rows[0];
-      assertCrossBranch(transfer);
+      assertDeliveryWorkflow(transfer);
       if (['hand_to_rep', 'ship_customer', 'dropoff_customer'].includes(action)) {
         await assertRequestReadyForFinalDelivery(client, requestId, transfer.request_scope || 'stone_and_cert');
         if (!transfer.resolution_confirmed) {
@@ -84,8 +89,17 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
         route: transfer.delivery_route, status: transfer.transfer_status || 'awaiting_source',
         sourceBranch: transfer.fulfillment_branch, destinationBranch: transfer.destination_branch,
         actorBranch, action, hasLabel: transfer.has_label, paperworkType: transfer.paperwork_type,
+        requiresErpTransfer: transfer.cross_branch,
+        erpTransferConfirmed: transfer.erp_transfer_confirmed,
       });
       await client.query('UPDATE requests SET transfer_status = $2 WHERE id = $1', [requestId, nextStatus]);
+      await recordRequestMovement(client, requestId, {
+        movementType: movementForTransferAction(action),
+        fromBranch: transfer.fulfillment_branch,
+        toBranch: transfer.destination_branch,
+        actorId: req.user.id,
+        details: { action, status: nextStatus, deliveryRoute: transfer.delivery_route },
+      });
       return { ...transfer, transferStatus: nextStatus };
     });
     await writeAudit({ actorId: req.user.id, action: 'transfer.status_changed', targetType: 'request', targetId: requestId, ip: req.ip, details: { action, status: result.transferStatus } });
@@ -94,7 +108,68 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
     res.json(result);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
-    if (err.message?.includes('Only ') || err.message?.includes('not allowed') || err.message?.includes('shipping label')) return res.status(409).json({ error: err.message });
+    if (err.message?.includes('Only ') || err.message?.includes('not allowed') || err.message?.includes('shipping label') || err.message?.includes('ERP branch transfer')) return res.status(409).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) return res.status(400).json({ error: 'Valid request is required' });
+    const actorBranch = await inventoryBranch(req.user.id);
+    if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
+
+    const result = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, cross_branch, fulfillment_branch, COALESCE(delivery_branch, branch) AS destination_branch,
+                erp_transfer_confirmed, transfer_status
+         FROM requests WHERE id = $1 FOR UPDATE`,
+        [requestId]
+      );
+      const transfer = rows[0];
+      if (!transfer) {
+        const error = new Error('Request not found'); error.status = 404; throw error;
+      }
+      if (!transfer.cross_branch) {
+        const error = new Error('An ERP branch transfer is only required for cross-branch requests'); error.status = 400; throw error;
+      }
+      if (actorBranch !== transfer.fulfillment_branch) {
+        const error = new Error(`Only the supplying branch (${transfer.fulfillment_branch}) can confirm the ERP branch transfer`); error.status = 403; throw error;
+      }
+      if (!['awaiting_source', null].includes(transfer.transfer_status)) {
+        const error = new Error('The ERP branch transfer must be confirmed before packing'); error.status = 409; throw error;
+      }
+      if (!transfer.erp_transfer_confirmed) {
+        await client.query(
+          `UPDATE requests
+           SET erp_transfer_confirmed = true, erp_transfer_confirmed_at = now(), erp_transfer_confirmed_by = $2
+           WHERE id = $1`,
+          [requestId, req.user.id]
+        );
+        await recordRequestMovement(client, requestId, {
+          movementType: 'erp_transfer_recorded',
+          fromBranch: transfer.fulfillment_branch,
+          toBranch: transfer.destination_branch,
+          actorId: req.user.id,
+        });
+      }
+      return { ...transfer, erpTransferConfirmed: true };
+    });
+
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'transfer.erp_branch_transfer_confirmed',
+      targetType: 'request',
+      targetId: requestId,
+      ip: req.ip,
+      details: { sourceBranch: result.fulfillment_branch, destinationBranch: result.destination_branch },
+    });
+    broadcast(result.fulfillment_branch, 'transfer:updated', { requestId, erpTransferConfirmed: true });
+    broadcast(result.destination_branch, 'transfer:updated', { requestId, erpTransferConfirmed: true });
+    res.json({ id: requestId, erpTransferConfirmed: true });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   }
 });
@@ -108,7 +183,7 @@ router.post('/:id/shipping-label', requireRole('sales_rep'), upload.single('labe
       return res.status(415).json({ error: 'Label must be a real PDF, PNG, or JPEG file' });
     }
     const transfer = await getTransfer(requestId);
-    assertCrossBranch(transfer);
+    assertDeliveryWorkflow(transfer);
     if (transfer.sales_rep_id !== req.user.salesRepId) return res.status(403).json({ error: 'You can only upload a label for your own request' });
     if (transfer.delivery_route !== 'customer_ship') return res.status(400).json({ error: 'Shipping labels are only used for direct customer shipments' });
     if (!['awaiting_source', 'packed'].includes(transfer.transfer_status || 'awaiting_source')) return res.status(409).json({ error: 'The label can no longer be changed after shipment' });
@@ -133,7 +208,7 @@ router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) 
       return res.status(400).json({ error: 'Choose No paperwork, Invoice, or Memo' });
     }
     const transfer = await getTransfer(requestId);
-    assertCrossBranch(transfer);
+    assertDeliveryWorkflow(transfer);
     if (transfer.sales_rep_id !== req.user.salesRepId) return res.status(403).json({ error: 'You can only update paperwork for your own request' });
     if (transfer.delivery_route !== 'customer_ship') return res.status(400).json({ error: 'Paperwork is only required for direct customer shipments' });
     if (!['awaiting_source', 'packed'].includes(transfer.transfer_status || 'awaiting_source')) return res.status(409).json({ error: 'Paperwork can no longer be changed after shipment' });
@@ -149,7 +224,7 @@ router.get('/:id/shipping-label', async (req, res, next) => {
   try {
     const requestId = Number(req.params.id);
     const transfer = await getTransfer(requestId);
-    assertCrossBranch(transfer);
+    assertDeliveryWorkflow(transfer);
     const staffBranch = req.user.role === 'inventory' ? await inventoryBranch(req.user.id) : null;
     const allowed = (req.user.role === 'sales_rep' && transfer.sales_rep_id === req.user.salesRepId)
       || (req.user.role === 'inventory' && [transfer.fulfillment_branch, transfer.destination_branch].includes(staffBranch));

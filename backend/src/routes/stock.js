@@ -1,10 +1,14 @@
 const express = require('express');
 const multer = require('multer');
-const XLSX = require('xlsx');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const pool = require('../db/pool');
-const { parseSheet } = require('../utils/columnMapping');
 const { getHoldersForBarcodes } = require('../services/duplicateService');
 const { normalizeStockStatus, stockStatusLabel } = require('../services/stockStatus');
+const { parseStockFile } = require('../services/stockFileParser');
+const { enqueueStockImport } = require('../services/stockImportQueue');
 const { withTransaction } = require('../db/withRetry');
 const { broadcast } = require('../sockets');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -13,7 +17,16 @@ const { createRateLimit } = require('../middleware/rateLimit');
 const router = express.Router();
 router.use(requireAuth);
 const stockUploadLimit = createRateLimit({ windowMs: 15 * 60_000, max: 12, key: (req) => `stock:${req.user.id}` });
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (req, file, callback) => {
+      const extension = path.extname(String(file.originalname || '')).toLowerCase();
+      callback(null, `diamond-stock-${randomUUID()}${extension}`);
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
 
 function availabilityFor(item, holdersMap) {
   const status = normalizeStockStatus(item.stock_status);
@@ -121,13 +134,13 @@ router.get('/options', async (req, res, next) => {
         distinctValues('jewelry_pieces', 'metal', branch, 'jewelry'),
         distinctValues('jewelry_pieces', 'lab', branch, 'jewelry'),
       ]);
-      return res.json({ categories, metals, labs, shapes: [], statuses: ['available', 'on_memo', 'on_hold'] });
+      return res.json({ categories, metals, labs, shapes: [], statuses: ['available', 'on_memo', 'on_hold', 'in_transit'] });
     }
     const [shapes, labs] = await Promise.all([
       distinctValues('loose_diamonds', 'shape', branch, 'loose'),
       distinctValues('loose_diamonds', 'lab', branch, 'loose'),
     ]);
-    res.json({ shapes, labs, categories: [], metals: [], statuses: ['available', 'on_memo', 'on_hold'] });
+    res.json({ shapes, labs, categories: [], metals: [], statuses: ['available', 'on_memo', 'on_hold', 'in_transit'] });
   } catch (err) {
     next(err);
   }
@@ -305,19 +318,24 @@ router.get('/jewelry', async (req, res, next) => {
 // column, and replaces each matching branch's stock list — a single upload
 // can refresh multiple branches if the sheet contains rows for more than one.
 router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single('file'), async (req, res, next) => {
+  const startedAt = Date.now();
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const fileName = String(req.file.originalname || '').toLowerCase();
-    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls') && !fileName.endsWith('.csv')) {
-      return res.status(415).json({ error: 'Only Excel or CSV stock files are accepted' });
+    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.csv')) {
+      return res.status(415).json({
+        error: fileName.endsWith('.xls')
+          ? 'Legacy .xls files must be saved as .xlsx or .csv before uploading'
+          : 'Only .xlsx or .csv stock files are accepted',
+      });
     }
 
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const firstSheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[firstSheetName];
-    const rows2d = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
-
-    const { format, rows } = parseSheet(rows2d);
+    // Parsing a real 37k-row workbook can take over ten seconds and hundreds
+    // of MB with SheetJS. Run a low-memory streaming reader in a worker so the
+    // API can continue answering Render health checks during the import.
+    const { format, rows } = await enqueueStockImport(
+      () => parseStockFile(req.file.path, req.file.originalname)
+    );
 
     if (rows.length === 0) {
       return res.status(400).json({ error: 'No data rows found, or headers were not recognized' });
@@ -356,6 +374,11 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
     const validBranches = new Set(['NY', 'LA', 'CH']);
     const skippedBranches = [...byBranch.keys()].filter((b) => !validBranches.has(b));
     for (const b of skippedBranches) byBranch.delete(b);
+    if (byBranch.size === 0) {
+      return res.status(400).json({
+        error: `No supported branch rows found${skippedBranches.length ? ` (found: ${skippedBranches.join(', ')})` : ''}`,
+      });
+    }
 
     const table = format === 'jewelry' ? 'jewelry_pieces' : 'loose_diamonds';
 
@@ -448,9 +471,17 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
       branchesUpdated,
       rowsImported: totalInserted,
       skippedBranches,
+      processingMs: Date.now() - startedAt,
     });
   } catch (err) {
+    if (['INVALID_STOCK_HEADERS', 'INVALID_STOCK_FILE', 'STOCK_PARSE_FAILED'].includes(err.code)) {
+      return res.status(400).json({ error: err.message });
+    }
     next(err);
+  } finally {
+    if (req.file?.path) {
+      await fs.unlink(req.file.path).catch(() => {});
+    }
   }
 });
 

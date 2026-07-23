@@ -7,6 +7,8 @@ test('copy order respects the application foreign keys', () => {
   assert.ok(COPY_TABLES.indexOf('sales_reps') < COPY_TABLES.indexOf('users'));
   assert.ok(COPY_TABLES.indexOf('users') < COPY_TABLES.indexOf('request_shipping_labels'));
   assert.ok(COPY_TABLES.indexOf('requests') < COPY_TABLES.indexOf('request_stones'));
+  assert.ok(COPY_TABLES.indexOf('request_stones') < COPY_TABLES.indexOf('stone_movements'));
+  assert.ok(COPY_TABLES.indexOf('users') < COPY_TABLES.indexOf('stone_movements'));
 });
 
 test('target copy refuses existing application data by default', () => {

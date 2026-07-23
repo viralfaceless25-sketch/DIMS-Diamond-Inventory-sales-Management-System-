@@ -1,0 +1,31 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+
+test('inventory requests expose ERP confirmation and barcode copy actions', () => {
+  const page = read('src/app/dashboard/requests/page.tsx');
+  assert.match(page, /ERP branch transfer required/);
+  assert.match(page, /confirmErpTransfer/);
+  assert.match(page, /navigator\.clipboard\.writeText/);
+  assert.match(page, /Copy barcode/);
+});
+
+test('sales-rep requests have no manual branch-pair routing controls', () => {
+  const page = read('src/app/rep/request-stones/page.tsx');
+  const workflow = read('src/lib/requestWorkflow.ts');
+  assert.doesNotMatch(page, /CROSS_BRANCH_ROUTES/);
+  assert.doesNotMatch(page, /NY-LA|LA-CH|NY local/);
+  assert.match(page, /Home branch detected automatically/);
+  assert.match(page, /customer_ship/);
+  assert.match(workflow, /Ship directly to customer/);
+});
+
+test('local customer shipping keeps paperwork and label controls', () => {
+  const page = read('src/app/rep/request-stones/page.tsx');
+  assert.doesNotMatch(page, /requiresCustomerShipment\s*=\s*isCrossBranch/);
+  assert.match(page, /hasDeliveryWorkflow\(isCrossBranch, deliveryRoute\)/);
+});

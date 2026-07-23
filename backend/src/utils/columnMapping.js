@@ -74,6 +74,22 @@ function mapRow(row, fieldIndex) {
   return out;
 }
 
+function createRowMapper(headerRow) {
+  const looseIndex = buildFieldIndex(headerRow || [], LOOSE_ALIASES);
+  const jewelryIndex = buildFieldIndex(headerRow || [], JEWELRY_ALIASES);
+
+  const looseScore = Object.keys(looseIndex).length;
+  const jewelryScore = Object.keys(jewelryIndex).length;
+  const format = jewelryScore > looseScore ? 'jewelry' : 'loose';
+  const fieldIndex = format === 'jewelry' ? jewelryIndex : looseIndex;
+
+  return {
+    format,
+    fields: Object.keys(fieldIndex),
+    map: (row) => mapRow(row, fieldIndex),
+  };
+}
+
 /**
  * Given a 2D array (first row = headers), returns { format, rows } where
  * format is 'loose' or 'jewelry' — whichever alias set matches more columns —
@@ -82,21 +98,13 @@ function mapRow(row, fieldIndex) {
 function parseSheet(rows2d) {
   if (!rows2d || rows2d.length === 0) return { format: null, rows: [] };
   const [headerRow, ...dataRows] = rows2d;
-
-  const looseIndex = buildFieldIndex(headerRow, LOOSE_ALIASES);
-  const jewelryIndex = buildFieldIndex(headerRow, JEWELRY_ALIASES);
-
-  const looseScore = Object.keys(looseIndex).length;
-  const jewelryScore = Object.keys(jewelryIndex).length;
-
-  const format = jewelryScore > looseScore ? 'jewelry' : 'loose';
-  const fieldIndex = format === 'jewelry' ? jewelryIndex : looseIndex;
+  const mapper = createRowMapper(headerRow);
 
   const mapped = dataRows
     .filter((r) => r.some((cell) => cell !== undefined && cell !== null && String(cell).trim() !== ''))
-    .map((r) => mapRow(r, fieldIndex));
+    .map(mapper.map);
 
-  return { format, rows: mapped };
+  return { format: mapper.format, rows: mapped };
 }
 
-module.exports = { parseSheet, normalize, LOOSE_ALIASES, JEWELRY_ALIASES };
+module.exports = { parseSheet, createRowMapper, normalize, LOOSE_ALIASES, JEWELRY_ALIASES };

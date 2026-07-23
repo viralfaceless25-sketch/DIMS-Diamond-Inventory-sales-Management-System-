@@ -16,7 +16,7 @@ const CUSTOMER_DROPOFF_STEPS = {
   packed: { dropoff_customer: 'dropped_off_to_customer' },
 };
 
-function getTransferAction({ route, status, sourceBranch, destinationBranch, actorBranch, action, hasLabel = false, paperworkType = 'none' }) {
+function getTransferAction({ route, status, sourceBranch, destinationBranch, actorBranch, action, hasLabel = false, paperworkType = 'none', requiresErpTransfer = false, erpTransferConfirmed = false }) {
   const sourceOnly = ['pack', 'ship', 'ship_customer', 'dropoff_customer'];
   const destinationOnly = ['receive', 'ready', 'hand_to_rep'];
   if (sourceOnly.includes(action) && actorBranch !== sourceBranch) {
@@ -24,6 +24,9 @@ function getTransferAction({ route, status, sourceBranch, destinationBranch, act
   }
   if (destinationOnly.includes(action) && actorBranch !== destinationBranch) {
     throw new Error(`Only the destination branch (${destinationBranch}) can ${action.replace('_', ' ')}`);
+  }
+  if (action === 'pack' && requiresErpTransfer && !erpTransferConfirmed) {
+    throw new Error('Complete the ERP branch transfer before packing this request');
   }
   const steps = route === 'internal_transfer' ? INTERNAL_STEPS
     : route === 'customer_ship' ? CUSTOMER_SHIP_STEPS

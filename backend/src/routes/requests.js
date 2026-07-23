@@ -5,6 +5,12 @@ const { computeBatchStatus, isActive } = require('../services/statusService');
 const { deriveRequestStatus } = require('../services/resolutionService');
 const { getHoldersMap } = require('../services/duplicateService');
 const { isRequestableStockStatus, normalizeStockStatus, stockStatusLabel } = require('../services/stockStatus');
+const { homeBranchForStock, deriveRequestRoute } = require('../services/requestRouting');
+const {
+  movementForStoneField,
+  recordRequestMovement,
+  recordStoneMovement,
+} = require('../services/movementService');
 const { broadcast } = require('../sockets');
 const { withTransaction } = require('../db/withRetry');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -186,7 +192,8 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows: requests } = await pool.query(
-      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed, r.requested_at, r.status, r.source,
+      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
+              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by, r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
               sr.id AS rep_id, sr.name AS rep_name
@@ -226,6 +233,9 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           deliveryRoute: r.delivery_route,
           paperworkType: r.paperwork_type,
           transferStatus: r.transfer_status,
+          erpTransferConfirmed: r.erp_transfer_confirmed,
+          erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
+          erpTransferConfirmedBy: r.erp_transfer_confirmed_by,
           resolutionConfirmed: r.resolution_confirmed,
           hasLabel: r.has_label,
           requestedAt: r.requested_at,
@@ -259,7 +269,8 @@ router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rows } = await pool.query(
-      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed, r.requested_at, r.status, r.source,
+      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
+              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by, r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
               sr.id AS rep_id, sr.name AS rep_name
@@ -287,6 +298,9 @@ router.get('/:id', async (req, res, next) => {
       deliveryRoute: request.delivery_route,
       paperworkType: request.paperwork_type,
       transferStatus: request.transfer_status,
+      erpTransferConfirmed: request.erp_transfer_confirmed,
+      erpTransferConfirmedAt: request.erp_transfer_confirmed_at,
+      erpTransferConfirmedBy: request.erp_transfer_confirmed_by,
       resolutionConfirmed: request.resolution_confirmed,
       hasLabel: request.has_label,
       requestedAt: request.requested_at,
@@ -311,24 +325,18 @@ router.get('/:id', async (req, res, next) => {
 // reps, so they can't use this endpoint.
 router.post('/', requireRole('sales_rep'), async (req, res, next) => {
   try {
-    const { branch, stones, source = 'manual' } = req.body;
+    const { stones, source = 'manual' } = req.body;
     const requestScope = ['stone_and_cert', 'stone_only', 'cert_only'].includes(req.body.requestScope) ? req.body.requestScope : 'stone_and_cert';
-    const requestType = ['urgent', 'local', 'ship', 'dropoff', 'pickup'].includes(req.body.requestType) ? req.body.requestType : 'local';
-    const dropoffCompany = requestType === 'dropoff' ? String(req.body.dropoffCompany || '').trim() : null;
-    const dropoffAddress = requestType === 'dropoff' ? String(req.body.dropoffAddress || '').trim() : null;
-    const fulfillmentBranch = String(req.body.fulfillmentBranch || branch || '').trim();
-    const deliveryBranch = String(req.body.deliveryBranch || branch || '').trim();
-    const deliveryRoute = ['internal_transfer', 'customer_ship', 'customer_dropoff'].includes(req.body.deliveryRoute) ? req.body.deliveryRoute : null;
+    const requestedDeliveryRoute = ['internal_transfer', 'customer_ship', 'customer_dropoff'].includes(req.body.deliveryRoute)
+      ? req.body.deliveryRoute
+      : 'internal_transfer';
     const paperworkType = ['none', 'pending', 'invoice', 'memo'].includes(req.body.paperworkType) ? req.body.paperworkType : 'none';
     const salesRepId = req.user.salesRepId;
     if (!salesRepId) {
       return res.status(400).json({ error: 'Your account is not linked to a sales rep profile' });
     }
-    if (!branch || !Array.isArray(stones) || stones.length === 0) {
-      return res.status(400).json({ error: 'branch and a non-empty stones[] are required' });
-    }
-    if (requestType === 'dropoff' && (!dropoffCompany || !dropoffAddress)) {
-      return res.status(400).json({ error: 'Drop-off company and address are required for drop-off requests' });
+    if (!Array.isArray(stones) || stones.length === 0) {
+      return res.status(400).json({ error: 'A non-empty stones[] list is required' });
     }
 
     const { rows: repRows } = await pool.query('SELECT branch FROM sales_reps WHERE id = $1', [salesRepId]);
@@ -336,13 +344,6 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
     if (!repBranch) {
       return res.status(400).json({ error: 'Your sales rep profile is missing a branch' });
     }
-    const crossBranch = fulfillmentBranch !== deliveryBranch;
-    if (!['NY', 'CH', 'LA'].includes(fulfillmentBranch)) return res.status(400).json({ error: 'Choose NY, Chicago, or LA as the supplying branch' });
-    if (!['NY', 'CH', 'LA'].includes(deliveryBranch)) return res.status(400).json({ error: 'Choose NY, Chicago, or LA as the delivery branch' });
-    if (crossBranch && !deliveryRoute) return res.status(400).json({ error: 'Choose how this cross-branch request will be delivered' });
-    if (crossBranch && deliveryRoute === 'customer_ship' && requestType !== 'ship') return res.status(400).json({ error: 'Direct customer shipping must use the Ship request type' });
-    if (crossBranch && deliveryRoute === 'customer_dropoff' && requestType !== 'dropoff') return res.status(400).json({ error: 'Direct customer drop-off must use the Drop-off request type' });
-
     const normalizedStones = [];
     const seen = new Set();
     for (const stone of stones) {
@@ -376,7 +377,6 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       for (const row of rows) stockByKey.set(`jewelry:${row.barcode}`, row);
     }
 
-    const holdersMap = await getHoldersMap(fulfillmentBranch);
     const blocked = [];
     for (const stone of normalizedStones) {
       const stock = stockByKey.get(`${stone.itemType}:${stone.barcode}`);
@@ -384,15 +384,51 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         blocked.push(`${stone.barcode} is not in stock`);
         continue;
       }
-      if (stock.branch !== fulfillmentBranch) {
-        blocked.push(`${stone.barcode} is in ${stock.branch}, not ${fulfillmentBranch}`);
-        continue;
-      }
       const status = normalizeStockStatus(stock.stock_status);
       if (!isRequestableStockStatus(status)) {
         blocked.push(`${stone.barcode} is ${stockStatusLabel(status)}`);
-        continue;
       }
+    }
+    if (blocked.length) {
+      return res.status(409).json({
+        error: `Request blocked: ${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`,
+        blocked,
+      });
+    }
+
+    let fulfillmentBranch;
+    let deliveryBranch;
+    let crossBranch;
+    let deliveryRoute;
+    let requestType;
+    try {
+      const homeBranch = homeBranchForStock(normalizedStones.map((stone) => ({
+        barcode: stone.barcode,
+        branch: stockByKey.get(`${stone.itemType}:${stone.barcode}`).branch,
+      })));
+      ({
+        fulfillmentBranch,
+        deliveryBranch,
+        crossBranch,
+        deliveryRoute,
+        requestType,
+      } = deriveRequestRoute({
+        homeBranch,
+        repBranch,
+        deliveryRoute: requestedDeliveryRoute,
+      }));
+    } catch (routingError) {
+      return res.status(409).json({ error: routingError.message });
+    }
+
+    const dropoffCompany = requestType === 'dropoff' ? String(req.body.dropoffCompany || '').trim() : null;
+    const dropoffAddress = requestType === 'dropoff' ? String(req.body.dropoffAddress || '').trim() : null;
+    if (requestType === 'dropoff' && (!dropoffCompany || !dropoffAddress)) {
+      return res.status(400).json({ error: 'Drop-off company and address are required for drop-off requests' });
+    }
+
+    const holdersMap = await getHoldersMap(fulfillmentBranch);
+    for (const stone of normalizedStones) {
       const holders = holdersMap.get(stone.barcode) || [];
       if (holders.length > 0) {
         const names = [...new Set(holders.map((h) => h.repName))].join(', ');
@@ -412,7 +448,7 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       const { rows: reqRows } = await client.query(
         `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'awaiting') RETURNING id`,
-        [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, crossBranch ? deliveryRoute : null, paperworkType, crossBranch ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress]
+        [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, paperworkType, deliveryRoute ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress]
       );
       const newRequestId = reqRows[0].id;
 
@@ -423,6 +459,13 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
           [newRequestId, stone.barcode, stone.itemType]
         );
       }
+      await recordRequestMovement(client, newRequestId, {
+        movementType: 'requested',
+        fromBranch: fulfillmentBranch,
+        toBranch: deliveryBranch,
+        actorId: req.user.id,
+        details: { deliveryRoute, requestType },
+      });
       return newRequestId;
     });
 
@@ -455,11 +498,22 @@ router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, 
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client) => {
-      await client.query(
+      const { rows: changedRows } = await client.query(
         `UPDATE request_stones SET ${field} = $1, ${timestampCol} = CASE WHEN $1 THEN now() ELSE NULL END
-         WHERE id = $2 AND request_id = $3`,
+         WHERE id = $2 AND request_id = $3 AND ${field} IS DISTINCT FROM $1
+         RETURNING id`,
         [value, stoneId, id]
       );
+      if (value && changedRows[0]) {
+        await recordStoneMovement(client, {
+          requestId: Number(id),
+          requestStoneId: Number(stoneId),
+          movementType: movementForStoneField(field),
+          fromBranch: actorBranch,
+          toBranch: actorBranch,
+          actorId: req.user.id,
+        });
+      }
     });
 
     broadcast(branch, 'request:updated', { requestId: Number(id), status });
@@ -494,6 +548,10 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
     const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client) => {
       const { rows: scopeRows } = await client.query('SELECT request_scope FROM requests WHERE id = $1', [id]);
       const requestScope = scopeRows[0]?.request_scope || 'stone_and_cert';
+      const { rows: beforeRows } = await client.query(
+        'SELECT id, stone_found, cert_found, returned FROM request_stones WHERE request_id = $1',
+        [id]
+      );
 
       if (field) {
         const timestampCol = `${field}_at`;
@@ -526,6 +584,29 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
            WHERE request_id = $2`,
           [value, id]
         );
+      }
+
+      if (value) {
+        const fields = field
+          ? [field]
+          : requestScope === 'stone_only'
+            ? ['stone_found']
+            : requestScope === 'cert_only'
+              ? ['cert_found']
+              : ['stone_found', 'cert_found'];
+        for (const before of beforeRows) {
+          for (const changedField of fields) {
+            if (before[changedField]) continue;
+            await recordStoneMovement(client, {
+              requestId: Number(id),
+              requestStoneId: before.id,
+              movementType: movementForStoneField(changedField),
+              fromBranch: actorBranch,
+              toBranch: actorBranch,
+              actorId: req.user.id,
+            });
+          }
+        }
       }
     });
 
@@ -580,7 +661,9 @@ router.get('/by-rep/:repId', async (req, res, next) => {
       return res.status(403).json({ error: 'You can only view your own requests' });
     }
     const { rows: requests } = await pool.query(
-      `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status, requested_at, status, request_scope, request_type, dropoff_company, dropoff_address,
+      `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status,
+              erp_transfer_confirmed, erp_transfer_confirmed_at, erp_transfer_confirmed_by,
+              requested_at, status, request_scope, request_type, dropoff_company, dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = requests.id) AS has_label FROM requests
        WHERE sales_rep_id = $1 ORDER BY requested_at DESC`,
       [repId]
@@ -597,6 +680,9 @@ router.get('/by-rep/:repId', async (req, res, next) => {
           deliveryRoute: r.delivery_route,
           paperworkType: r.paperwork_type,
           transferStatus: r.transfer_status,
+          erpTransferConfirmed: r.erp_transfer_confirmed,
+          erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
+          erpTransferConfirmedBy: r.erp_transfer_confirmed_by,
           hasLabel: r.has_label,
           requestedAt: r.requested_at,
           status: r.status,

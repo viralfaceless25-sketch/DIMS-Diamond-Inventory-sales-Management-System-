@@ -124,7 +124,7 @@ export default function StockPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    setUploadMsg('');
+    setUploadMsg('Processing stock file securely… large files can take a minute. You can keep the app open.');
     setUploadErr('');
     try {
       const res = await api.uploadStock(file);
@@ -139,7 +139,12 @@ export default function StockPage() {
         loadOptions();
       }
     } catch (err) {
-      setUploadErr(err instanceof Error ? err.message : 'Upload failed');
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setUploadErr(
+        message === 'Failed to fetch'
+          ? 'The server connection was interrupted. Your existing stock was not replaced; wait a moment and upload the file again.'
+          : message
+      );
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -235,7 +240,7 @@ export default function StockPage() {
               <ChipRow label="Lab" values={labOptions} active={labs} onToggle={(v) => setLabs((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v])} t={t} />
             </>
           )}
-          <ChipRow label="Status" values={['available', 'on_memo', 'on_hold']} labels={{ available: 'Available', on_memo: 'On Memo', on_hold: 'On Hold' }} active={statuses} onToggle={(v) => setStatuses((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v])} t={t} />
+          <ChipRow label="Status" values={['available', 'on_memo', 'on_hold', 'in_transit']} labels={{ available: 'Available', on_memo: 'On Memo', on_hold: 'On Hold', in_transit: 'In Transit' }} active={statuses} onToggle={(v) => setStatuses((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v])} t={t} />
         </div>
 
         {/* Upload box */}
@@ -243,14 +248,14 @@ export default function StockPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ font: "600 13px 'Inter'", color: t.text }}>Upload stock spreadsheet</div>
             <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>
-              .xlsx or .csv. Rows are grouped by their Branch column (codes or full names); each branch&apos;s list is replaced.
+              .xlsx or .csv for both loose stones and jewelry. Rows are grouped by their Branch column; each included branch is replaced atomically.
             </div>
             {uploadMsg && <div style={{ marginTop: 8, font: "500 11.5px 'Inter'", color: ACCENT }}>{uploadMsg}</div>}
             {uploadErr && <div style={{ marginTop: 8, font: "500 11.5px 'Inter'", color: RED }}>{uploadErr}</div>}
           </div>
           <input ref={fileRef} type="file" accept=".xlsx,.csv" onChange={onFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ padding: '10px 18px', borderRadius: 9, border: 'none', background: uploading ? t.chipBg : ACCENT, color: uploading ? t.textFaint : '#0a0e0d', font: "600 12.5px 'Inter'", cursor: uploading ? 'default' : 'pointer', flex: 'none' }}>
-            {uploading ? 'Uploading…' : 'Choose file'}
+            {uploading ? 'Processing…' : 'Choose file'}
           </button>
         </div>
 
@@ -280,6 +285,7 @@ function availabilityLabel(a: LooseStone['availability']) {
   if (a.status === 'conflict') return { text: `${a.repCount} reps — conflict`, color: RED };
   if (a.status === 'on_memo') return { text: 'On Memo', color: AMBER };
   if (a.status === 'on_hold') return { text: 'On Hold', color: RED };
+  if (a.status === 'in_transit') return { text: 'In Transit', color: AMBER };
   return { text: `Requested · ${a.repName}`, color: AMBER };
 }
 

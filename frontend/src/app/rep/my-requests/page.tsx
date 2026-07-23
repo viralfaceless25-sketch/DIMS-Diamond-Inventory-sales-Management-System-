@@ -8,6 +8,7 @@ import { useTheme } from '../repContext';
 import { AMBER, GREEN } from '@/lib/theme';
 import { timeAgo, fmtCarat, sortStonesClient, STATUS_LABELS } from '@/lib/utils';
 import { Check } from '@/components/ui';
+import { hasDeliveryWorkflow } from '@/lib/requestWorkflow';
 
 export default function MyRequestsPage() {
   const { user } = useAuth();
@@ -69,8 +70,9 @@ export default function MyRequestsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {requests.map((r) => {
               const isOpen = open[r.id];
-              const pendingPaperwork = r.crossBranch && r.deliveryRoute === 'customer_ship' && r.paperworkType === 'pending';
-              const pendingLabel = r.crossBranch && r.deliveryRoute === 'customer_ship' && !r.hasLabel;
+              const deliveryWorkflow = hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute);
+              const pendingPaperwork = r.deliveryRoute === 'customer_ship' && r.paperworkType === 'pending';
+              const pendingLabel = r.deliveryRoute === 'customer_ship' && !r.hasLabel;
               return (
                 <div key={r.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
                   <div onClick={() => setOpen((p) => ({ ...p, [r.id]: !p[r.id] }))} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 110px 34px', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}>
@@ -83,7 +85,7 @@ export default function MyRequestsPage() {
 
                   {isOpen && (
                     <div style={{ borderTop: `1px solid ${t.border}` }}>
-                      {r.crossBranch && <div style={{ padding: '10px 16px', borderBottom: `1px solid ${t.border}`, font: "600 11px 'Inter'", color: t.textMuted, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      {deliveryWorkflow && <div style={{ padding: '10px 16px', borderBottom: `1px solid ${t.border}`, font: "600 11px 'Inter'", color: t.textMuted, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <span>From {r.fulfillmentBranch || r.branch} to {r.deliveryBranch || r.branch}</span>
                         <span>{r.deliveryRoute === 'internal_transfer' ? 'Internal transfer' : r.deliveryRoute === 'customer_ship' ? 'Ship to customer' : 'Drop off to customer'}</span>
                         <span>Paperwork: {r.paperworkType === 'pending' ? 'pending decision' : r.paperworkType === 'none' ? 'no paperwork' : r.paperworkType}</span>

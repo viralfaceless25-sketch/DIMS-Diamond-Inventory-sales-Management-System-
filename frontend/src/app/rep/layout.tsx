@@ -12,6 +12,7 @@ import { ThemeContext, CartContext, StockFilterContext } from './repContext';
 const NAV = [
   { href: '/rep/request-stones', label: 'Request stones', icon: 'M4 4h16v12H8l-4 4V4z' },
   { href: '/rep/my-requests', label: 'My requests', icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+  { href: '/rep/tracking', label: 'Stone tracking', icon: 'M3 12h4l3-8 4 16 3-8h4' },
 ];
 const FALLBACK_SHAPES = [
   'Round', 'Oval', 'Cushion', 'Old Miner', 'Pear', 'Princess', 'Emerald', 'Marquise', 'Asscher', 'Radiant',

@@ -3,9 +3,9 @@ const { Pool } = require('pg');
 
 const COPY_TABLES = [
   'branches', 'sales_reps', 'loose_diamonds', 'jewelry_pieces', 'users',
-  'requests', 'request_stones', 'request_shipping_labels', 'audit_log',
+  'requests', 'request_stones', 'request_shipping_labels', 'audit_log', 'stone_movements',
 ];
-const ID_TABLES = ['sales_reps', 'users', 'requests', 'request_stones', 'audit_log'];
+const ID_TABLES = ['sales_reps', 'users', 'requests', 'request_stones', 'audit_log', 'stone_movements'];
 
 function quote(name) {
   return `"${name.replace(/"/g, '""')}"`;

@@ -3,8 +3,40 @@ const assert = require('node:assert/strict');
 const { getTransferAction } = require('../src/services/transferService');
 
 test('only the supplying branch can pack an internal transfer', () => {
-  assert.equal(getTransferAction({ route: 'internal_transfer', status: 'awaiting_source', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'pack' }), 'packed');
-  assert.throws(() => getTransferAction({ route: 'internal_transfer', status: 'awaiting_source', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'NY', action: 'pack' }), /supplying branch/);
+  assert.equal(getTransferAction({ route: 'internal_transfer', status: 'awaiting_source', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'pack', erpTransferConfirmed: true }), 'packed');
+  assert.throws(() => getTransferAction({ route: 'internal_transfer', status: 'awaiting_source', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'NY', action: 'pack', erpTransferConfirmed: true }), /supplying branch/);
+});
+
+test('cross-branch packing requires ERP transfer confirmation', () => {
+  assert.throws(
+    () => getTransferAction({
+      route: 'internal_transfer',
+      status: 'awaiting_source',
+      sourceBranch: 'LA',
+      destinationBranch: 'NY',
+      actorBranch: 'LA',
+      action: 'pack',
+      requiresErpTransfer: true,
+      erpTransferConfirmed: false,
+    }),
+    /ERP branch transfer/
+  );
+});
+
+test('local customer shipping can be packed without an ERP branch transfer', () => {
+  assert.equal(
+    getTransferAction({
+      route: 'customer_ship',
+      status: 'awaiting_source',
+      sourceBranch: 'NY',
+      destinationBranch: 'NY',
+      actorBranch: 'NY',
+      action: 'pack',
+      requiresErpTransfer: false,
+      erpTransferConfirmed: false,
+    }),
+    'packed'
+  );
 });
 
 test('an internal transfer reaches the rep only in strict branch order', () => {

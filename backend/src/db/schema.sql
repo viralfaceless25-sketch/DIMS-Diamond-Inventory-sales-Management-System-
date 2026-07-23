@@ -93,6 +93,8 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS delivery_route TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS paperwork_type TEXT NOT NULL DEFAULT 'none';
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS transfer_status TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_at TIMESTAMPTZ;
 
 -- One row per stone inside a request batch
 CREATE TABLE IF NOT EXISTS request_stones (
@@ -154,6 +156,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAU
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_by INTEGER REFERENCES users(id);
+
 CREATE TABLE IF NOT EXISTS request_shipping_labels (
   request_id INTEGER PRIMARY KEY REFERENCES requests(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
@@ -176,3 +180,22 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+
+CREATE TABLE IF NOT EXISTS stone_movements (
+  id               BIGSERIAL PRIMARY KEY,
+  request_id       INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+  request_stone_id INTEGER NOT NULL REFERENCES request_stones(id) ON DELETE CASCADE,
+  sales_rep_id     INTEGER NOT NULL REFERENCES sales_reps(id),
+  barcode          TEXT NOT NULL,
+  movement_type    TEXT NOT NULL,
+  from_branch      TEXT REFERENCES branches(id),
+  to_branch        TEXT REFERENCES branches(id),
+  actor_id         INTEGER REFERENCES users(id),
+  details          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stone_movements_barcode ON stone_movements(barcode);
+CREATE INDEX IF NOT EXISTS idx_stone_movements_request ON stone_movements(request_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stone_movements_rep ON stone_movements(sales_rep_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stone_movements_created_at ON stone_movements(created_at DESC);

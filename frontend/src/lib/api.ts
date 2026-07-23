@@ -39,7 +39,7 @@ export interface AdminUser {
 }
 
 export interface Availability {
-  status: 'in_stock' | 'requested' | 'conflict' | 'on_memo' | 'on_hold' | string;
+  status: 'in_stock' | 'requested' | 'conflict' | 'on_memo' | 'on_hold' | 'in_transit' | string;
   label?: string;
   repName?: string;
   repCount?: number;
@@ -118,6 +118,9 @@ export interface RequestSummary {
   deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus: string | null;
+  erpTransferConfirmed: boolean;
+  erpTransferConfirmedAt?: string | null;
+  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed: boolean;
   hasLabel?: boolean;
   requestedAt: string;
@@ -141,6 +144,9 @@ export interface RequestDetail {
   deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus: string | null;
+  erpTransferConfirmed: boolean;
+  erpTransferConfirmedAt?: string | null;
+  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed: boolean;
   hasLabel?: boolean;
   requestedAt: string;
@@ -163,6 +169,9 @@ export interface MyRequest {
   deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus?: string | null;
+  erpTransferConfirmed?: boolean;
+  erpTransferConfirmedAt?: string | null;
+  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed?: boolean;
   hasLabel?: boolean;
   requestedAt: string;
@@ -245,10 +254,41 @@ export interface TrackingRow {
   returned: boolean;
   request_id: number;
   branch: string;
+  fulfillment_branch: string | null;
+  delivery_branch: string | null;
+  cross_branch: boolean;
+  delivery_route: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
+  transfer_status: string | null;
+  request_type: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
+  request_status: BatchStatus;
   requested_at: string;
   rep_name: string;
   cert_no: string | null;
+  current_branch: string;
+  current_stock_status: string;
+  currentStockStatusLabel: string;
+  lab: string | null;
+  shape: string | null;
+  carat: number | string | null;
+  color: string | null;
+  clarity: string | null;
+  category: string | null;
+  item: string | null;
+  diamond_cts: number | string | null;
   trackingStatus: 'requested' | 'partially_given' | 'with_rep' | 'returned';
+  movements: TrackingMovement[];
+}
+
+export interface TrackingMovement {
+  id: number | string;
+  movementType: string;
+  movementLabel: string;
+  fromBranch: string | null;
+  toBranch: string | null;
+  actorName: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+  historical: boolean;
 }
 
 export interface TrackingPage {
@@ -256,6 +296,7 @@ export interface TrackingPage {
   total: number;
   page: number;
   pageSize: number;
+  scope?: 'mine' | 'inventory';
 }
 
 export interface ExtractedStone {
@@ -404,6 +445,7 @@ export const api = {
       branchesUpdated: string[];
       rowsImported: number;
       skippedBranches: string[];
+      processingMs: number;
     }>('/api/stock/upload', { method: 'POST', body: form }, true);
   },
 
@@ -439,7 +481,6 @@ export const api = {
   // requests (sales rep)
   myRequests: (repId: number) => request<MyRequest[]>(`/api/requests/by-rep/${repId}`),
   submitRequest: (
-    branch: string,
     stones: { barcode: string; itemType: string }[],
     source = 'manual',
     options: {
@@ -447,15 +488,13 @@ export const api = {
       requestType?: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
       dropoffCompany?: string;
       dropoffAddress?: string;
-      fulfillmentBranch?: string;
-      deliveryBranch?: string;
       deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff';
       paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
     } = {}
   ) =>
     request<{ id: number; branch: string; stones: RequestStone[]; status: BatchStatus }>(
       '/api/requests',
-      { method: 'POST', body: JSON.stringify({ branch, stones, source, ...options }) }
+      { method: 'POST', body: JSON.stringify({ stones, source, ...options }) }
     ),
   uploadShippingLabel: (requestId: number, file: File) => {
     const form = new FormData(); form.append('label', file);
@@ -466,10 +505,13 @@ export const api = {
   shippingLabelUrl,
   setTransferStatus: (requestId: number, action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer') =>
     request<{ transferStatus: string }>(`/api/transfers/${requestId}/status`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+  confirmErpTransfer: (requestId: number) =>
+    request<{ id: number; erpTransferConfirmed: true }>(`/api/transfers/${requestId}/erp-transfer`, { method: 'PATCH' }),
 
   // tracking (inventory)
-  tracking: (branch: string, search?: string, page = 1) => {
+  tracking: (branch: string, search?: string, page = 1, movement?: string) => {
     const q = new URLSearchParams({ branch, page: String(page), pageSize: '100', ...(search ? { search } : {}) });
+    if (movement) q.set('movement', movement);
     return request<TrackingPage>(`/api/tracking?${q.toString()}`);
   },
 

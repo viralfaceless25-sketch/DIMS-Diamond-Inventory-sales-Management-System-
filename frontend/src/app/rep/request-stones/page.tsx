@@ -7,6 +7,15 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme, useCartBadge, useStockFilters } from '../repContext';
 import { ACCENT, AMBER, RED } from '@/lib/theme';
 import { fmtCarat, fmtMeasurements, sortStonesClient } from '@/lib/utils';
+import {
+  availabilityText,
+  canAddToHomeBranch,
+  canRequestAvailability,
+  DeliveryRoute,
+  fulfillmentLabel,
+  hasDeliveryWorkflow,
+  requestTypeForFulfillment,
+} from '@/lib/requestWorkflow';
 import { Check } from '@/components/ui';
 
 interface CartItem {
@@ -16,16 +25,12 @@ interface CartItem {
   color: string | null;
   clarity: string | null;
   itemType: string;
+  branch: string;
 }
 
 type RequestScope = 'stone_and_cert' | 'stone_only' | 'cert_only';
-type RequestType = 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
-type DeliveryRoute = 'internal_transfer' | 'customer_ship' | 'customer_dropoff';
 type PaperworkType = 'none' | 'pending' | 'invoice' | 'memo';
 
-const CROSS_BRANCH_ROUTES = [
-  ['NY', 'LA'], ['NY', 'CH'], ['LA', 'NY'], ['LA', 'CH'], ['CH', 'NY'], ['CH', 'LA'],
-] as const;
 const STOCK_TABLE_COLUMNS = '40px minmax(0,1.1fr) 48px 90px 70px minmax(165px,1.1fr) 50px 60px minmax(0,1.1fr)';
 
 function extractBarcodes(value: string) {
@@ -50,9 +55,6 @@ export default function RequestStonesPage() {
   const [barcodeMsg, setBarcodeMsg] = useState('');
   const [barcodeError, setBarcodeError] = useState(false);
   const [requestScope, setRequestScope] = useState<RequestScope>('stone_and_cert');
-  const [requestType, setRequestType] = useState<RequestType>('local');
-  const [fulfillmentBranch, setFulfillmentBranch] = useState(branch);
-  const [deliveryBranch, setDeliveryBranch] = useState(branch);
   const [deliveryRoute, setDeliveryRoute] = useState<DeliveryRoute>('internal_transfer');
   const [paperworkType, setPaperworkType] = useState<PaperworkType>('none');
   const [shippingLabelFile, setShippingLabelFile] = useState<File | null>(null);
@@ -90,7 +92,7 @@ export default function RequestStonesPage() {
       colors: colorFilter,
       clarities: clarityFilter,
       shapes: shapeFilter,
-      requestableOnly: true,
+      requestableOnly: false,
     });
     setStock(res.rows);
     setTotal(res.total);
@@ -107,27 +109,11 @@ export default function RequestStonesPage() {
   useEffect(() => {
     setPage(1);
   }, [search, colorFilter, clarityFilter, shapeFilter, branch]);
-  useEffect(() => { setFulfillmentBranch(branch); setDeliveryBranch(branch); }, [branch]);
-
   useBranchSocket(branch, (ev) => {
     if (ev === 'stock:updated' || ev.startsWith('request:')) load();
   });
 
   const inCart = (barcode: string) => cart.some((c) => c.barcode === barcode);
-
-  function canRequestAvailability(av: LooseStone['availability']) {
-    return av.status === 'in_stock';
-  }
-
-  function availabilityText(av: LooseStone['availability']) {
-    if (av.label) return av.label;
-    if (av.status === 'in_stock') return 'Available';
-    if (av.status === 'conflict') return `${av.repCount} reps`;
-    if (av.status === 'requested') return `With ${av.repName}`;
-    if (av.status === 'on_memo') return 'On Memo';
-    if (av.status === 'on_hold') return 'On Hold';
-    return String(av.status || 'Unavailable');
-  }
 
   function availabilityColor(av: LooseStone['availability']) {
     if (av.status === 'in_stock') return ACCENT;
@@ -143,45 +129,45 @@ export default function RequestStonesPage() {
       setConfirmError(true);
       return;
     }
-    if (s.branch !== fulfillmentBranch) {
-      setConfirmMsg(`${s.barcode} is in ${s.branch}. Choose the ${s.branch} -> ${deliveryBranch} route before adding it.`);
+    const currentHomeBranch = cart[0]?.branch || null;
+    if (!canAddToHomeBranch(currentHomeBranch, s.branch)) {
+      setConfirmMsg(`This request is already going to ${currentHomeBranch} inventory. Submit it first, then request ${s.barcode} from ${s.branch}.`);
       setConfirmError(true);
       return;
     }
     setCart((prev) =>
       prev.some((c) => c.barcode === s.barcode)
         ? prev.filter((c) => c.barcode !== s.barcode)
-        : [...prev, { barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: 'loose' }]
+        : [...prev, { barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: 'loose', branch: s.branch }]
     );
   }
 
   // Server already filtered + sorted; render the page as-is.
   const filtered = stock;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const isCrossBranch = fulfillmentBranch !== deliveryBranch;
+  const homeBranch = cart[0]?.branch || null;
+  const isCrossBranch = Boolean(homeBranch && homeBranch !== branch);
+  const deliveryWorkflow = hasDeliveryWorkflow(isCrossBranch, deliveryRoute);
 
   async function submit(items: CartItem[], clearCartAfter: boolean, source: 'manual' | 'invoice_upload' = 'manual') {
     if (items.length === 0) return;
     setConfirmError(false);
-    if (requestType === 'dropoff' && (!dropoffCompany.trim() || !dropoffAddress.trim())) {
+    if (deliveryRoute === 'customer_dropoff' && (!dropoffCompany.trim() || !dropoffAddress.trim())) {
       setConfirmMsg('Drop-off requests need a company name and address.');
       setConfirmError(true);
       return;
     }
-    const requiresCustomerShipment = isCrossBranch && deliveryRoute === 'customer_ship';
+    const requiresCustomerShipment = deliveryRoute === 'customer_ship';
     try {
       const created = await api.submitRequest(
-        branch,
         items.map((c) => ({ barcode: c.barcode, itemType: c.itemType })),
         source,
         {
           requestScope,
-          requestType,
+          requestType: requestTypeForFulfillment(deliveryRoute, isCrossBranch),
           dropoffCompany: dropoffCompany.trim(),
           dropoffAddress: dropoffAddress.trim(),
-          fulfillmentBranch,
-          deliveryBranch,
-          deliveryRoute: isCrossBranch ? deliveryRoute : undefined,
+          deliveryRoute,
           paperworkType,
         }
       );
@@ -219,25 +205,27 @@ export default function RequestStonesPage() {
     }
     try {
       const results = await Promise.all(barcodes.map(async (barcode) => {
-        const looseRes = await api.looseStock({ branch: fulfillmentBranch, barcode, page: 1, pageSize: 10 });
+        const looseRes = await api.looseStock({ branch: 'ALL', barcode, page: 1, pageSize: 10 });
         const exactLoose = looseRes.rows.find((stone) => stone.barcode.toUpperCase() === barcode);
         let exactJewelry: JewelryPiece | undefined;
         if (!exactLoose) {
-          const jewelryRes = await api.jewelryStock({ branch: fulfillmentBranch, barcode, page: 1, pageSize: 10 });
+          const jewelryRes = await api.jewelryStock({ branch: 'ALL', barcode, page: 1, pageSize: 10 });
           exactJewelry = jewelryRes.rows.find((piece) => piece.barcode.toUpperCase() === barcode);
         }
         const exact = exactLoose || exactJewelry;
         if (!exact) return { barcode, error: 'not found' };
         if (!canRequestAvailability(exact.availability)) return { barcode, error: availabilityText(exact.availability) };
         const item: CartItem = exactLoose
-          ? { barcode: exactLoose.barcode, shape: exactLoose.shape, carat: exactLoose.carat, color: exactLoose.color, clarity: exactLoose.clarity, itemType: 'loose' }
-          : { barcode: exactJewelry!.barcode, shape: exactJewelry!.item || exactJewelry!.category || 'Jewelry', carat: exactJewelry!.diamond_cts ?? null, color: null, clarity: null, itemType: 'jewelry' };
+          ? { barcode: exactLoose.barcode, shape: exactLoose.shape, carat: exactLoose.carat, color: exactLoose.color, clarity: exactLoose.clarity, itemType: 'loose', branch: exactLoose.branch }
+          : { barcode: exactJewelry!.barcode, shape: exactJewelry!.item || exactJewelry!.category || 'Jewelry', carat: exactJewelry!.diamond_cts ?? null, color: null, clarity: null, itemType: 'jewelry', branch: exactJewelry!.branch };
         return { barcode, item };
       }));
 
       const currentBarcodes = new Set(cart.map((item) => item.barcode));
-      const additions = results.flatMap((result) => result.item && !currentBarcodes.has(result.item.barcode) ? [result.item] : []);
-      const unavailable = results.filter((result) => result.error);
+      const lookupAdditions = results.flatMap((result) => result.item && !currentBarcodes.has(result.item.barcode) ? [result.item] : []);
+      const currentHomeBranch = cart[0]?.branch || lookupAdditions[0]?.branch || null;
+      const additions = lookupAdditions.filter((item) => canAddToHomeBranch(currentHomeBranch, item.branch));
+      const unavailable = results.filter((result) => result.error).length + (lookupAdditions.length - additions.length);
       setCart((prev) => {
         const existing = new Set(prev.map((item) => item.barcode));
         return [...prev, ...additions.filter((item) => !existing.has(item.barcode))];
@@ -245,7 +233,7 @@ export default function RequestStonesPage() {
       setBarcodeEntry('');
       const messages = [
         additions.length ? `${additions.length} barcode${additions.length === 1 ? '' : 's'} added for review.` : '',
-        unavailable.length ? `${unavailable.length} unavailable or not found.` : '',
+        unavailable ? `${unavailable} unavailable, in another home branch, or not found.` : '',
       ].filter(Boolean);
       setBarcodeMsg(messages.join(' '));
       setBarcodeError(additions.length === 0);
@@ -273,7 +261,7 @@ export default function RequestStonesPage() {
     setSentSummary(null);
     setUnavailable([]);
     try {
-      const res = await api.extractInvoice(file, fulfillmentBranch);
+      const res = await api.extractInvoice(file, homeBranch || branch);
       if (!res.stones || res.stones.length === 0) {
         setExtractWarning(res.warning || 'No stones could be read from that PDF.');
         return;
@@ -327,7 +315,7 @@ export default function RequestStonesPage() {
     const available = extracted.filter((s) => s.available);
     if (available.length === 0) return;
     await submit(
-      available.map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type })),
+      available.map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch })),
       false,
       'invoice_upload'
     );
@@ -342,7 +330,8 @@ export default function RequestStonesPage() {
       const existing = new Set(prev.map((c) => c.barcode));
       const additions = available
         .filter((s) => !existing.has(s.barcode))
-        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type }));
+        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch }))
+        .filter((item) => canAddToHomeBranch(prev[0]?.branch || null, item.branch));
       return [...prev, ...additions];
     });
     setExtracted(null);
@@ -607,28 +596,41 @@ export default function RequestStonesPage() {
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${t.border}` }}>
-          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST ROUTE</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 12 }}>
-            <button onClick={() => { setFulfillmentBranch(branch); setDeliveryBranch(branch); setCart([]); setPage(1); setShippingLabelFile(null); setPaperworkType('none'); }} style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${!isCrossBranch ? ACCENT : t.borderLight}`, background: !isCrossBranch ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: !isCrossBranch ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}>{branch} local</button>
-            {CROSS_BRANCH_ROUTES.map(([sourceBranch, targetBranch]) => <button key={`${sourceBranch}-${targetBranch}`} onClick={() => { setFulfillmentBranch(sourceBranch); setDeliveryBranch(targetBranch); setCart([]); setPage(1); setShippingLabelFile(null); setPaperworkType('pending'); }} style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${fulfillmentBranch === sourceBranch && deliveryBranch === targetBranch ? ACCENT : t.borderLight}`, background: fulfillmentBranch === sourceBranch && deliveryBranch === targetBranch ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: fulfillmentBranch === sourceBranch && deliveryBranch === targetBranch ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}>{sourceBranch} -&gt; {targetBranch}</button>)}
+          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>FULFILLMENT</div>
+          <div style={{ padding: 9, marginBottom: 8, background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8, font: "600 10.5px 'Inter'", color: t.textMuted }}>
+            {homeBranch
+              ? `Home branch detected automatically: ${homeBranch}. This request will go directly to ${homeBranch} inventory.`
+              : 'Add a stone and its home branch will be detected automatically.'}
           </div>
-          {isCrossBranch && (
-            <div style={{ padding: 9, marginBottom: 12, background: 'oklch(70% 0.13 250 / 0.10)', border: '1px solid oklch(70% 0.13 250 / 0.28)', borderRadius: 8 }}>
-              <div style={{ font: "700 10.5px 'Inter'", color: t.textMuted, marginBottom: 7 }}>CROSS-BRANCH ROUTE</div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {[
-                  ['internal_transfer', `Transfer to ${branch}`],
-                  ['customer_ship', 'Ship directly to customer'],
-                  ['customer_dropoff', 'Drop off directly to customer'],
-                ].map(([value, label]) => (
-                  <button key={value} onClick={() => { setDeliveryRoute(value as DeliveryRoute); setShippingLabelFile(null); if (value === 'customer_ship') { setRequestType('ship'); if (paperworkType === 'none') setPaperworkType('pending'); } if (value === 'customer_dropoff') setRequestType('dropoff'); }} style={{ textAlign: 'left', padding: '7px 8px', borderRadius: 7, border: `1px solid ${deliveryRoute === value ? ACCENT : t.borderLight}`, background: deliveryRoute === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryRoute === value ? ACCENT : t.textMuted, font: "600 10.5px 'Inter'", cursor: 'pointer' }}>{label}</button>
-                ))}
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 12 }}>
+            {(['internal_transfer', 'customer_ship', 'customer_dropoff'] as DeliveryRoute[]).map((value) => (
+              <button
+                key={value}
+                onClick={() => {
+                  setDeliveryRoute(value);
+                  setShippingLabelFile(null);
+                  if (value === 'customer_ship' && paperworkType === 'none') setPaperworkType('pending');
+                  if (value !== 'customer_ship') setPaperworkType('none');
+                }}
+                style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${deliveryRoute === value ? ACCENT : t.borderLight}`, background: deliveryRoute === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryRoute === value ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}
+              >
+                {fulfillmentLabel(value, branch, homeBranch)}
+              </button>
+            ))}
+          </div>
+          {deliveryWorkflow && (
+            <div style={{ padding: 9, marginBottom: 12, background: 'oklch(70% 0.13 70 / 0.10)', border: '1px solid oklch(70% 0.13 70 / 0.28)', borderRadius: 8 }}>
+              {isCrossBranch && <>
+                <div style={{ font: "800 10.5px 'Inter'", color: AMBER }}>ERP BRANCH TRANSFER REQUIRED</div>
+                <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 5 }}>{homeBranch} inventory will be notified to enter the branch transfer in Maitri ERP before packing.</div>
+              </>}
+              {deliveryRoute === 'customer_ship' && <>
               <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, margin: '10px 0 6px' }}>PAPERWORK</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
                 {['none', 'invoice', 'memo'].map((value) => <button key={value} onClick={() => setPaperworkType(value as PaperworkType)} style={{ padding: '6px 4px', borderRadius: 6, border: `1px solid ${paperworkType === value ? ACCENT : t.borderLight}`, background: paperworkType === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: paperworkType === value ? ACCENT : t.textMuted, font: "600 10px 'Inter'", cursor: 'pointer' }}>{value === 'none' ? 'No paperwork' : value[0].toUpperCase() + value.slice(1)}</button>)}
               </div>
-              {deliveryRoute === 'customer_ship' && <div style={{ marginTop: 9 }}><button onClick={() => shippingLabelInputRef.current?.click()} style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: `1px solid ${shippingLabelFile ? ACCENT : t.borderLight}`, background: shippingLabelFile ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: shippingLabelFile ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer', textAlign: 'left' }}>{shippingLabelFile ? `Label ready: ${shippingLabelFile.name}` : 'Attach shipping label now (optional)'}</button><div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 6 }}>You can submit now. Pending paperwork and label tags remain until both are added; inventory cannot ship to the customer before then.</div></div>}
+              <div style={{ marginTop: 9 }}><button onClick={() => shippingLabelInputRef.current?.click()} style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: `1px solid ${shippingLabelFile ? ACCENT : t.borderLight}`, background: shippingLabelFile ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: shippingLabelFile ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer', textAlign: 'left' }}>{shippingLabelFile ? `Label ready: ${shippingLabelFile.name}` : 'Attach shipping label now (optional)'}</button><div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 6 }}>You can submit now. Pending paperwork and label tags remain until both are added; inventory cannot ship to the customer before then.</div></div>
+              </>}
             </div>
           )}
           <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST FOR</div>
@@ -644,22 +646,7 @@ export default function RequestStonesPage() {
             ))}
           </div>
 
-          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST TYPE</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {[
-              ['urgent', 'Urgent'],
-              ['local', 'Local'],
-              ['ship', 'Ship'],
-              ['dropoff', 'Drop-off'],
-              ['pickup', 'Pickup'],
-            ].map(([value, label]) => (
-              <button key={value} disabled={(isCrossBranch && deliveryRoute === 'customer_ship' && value !== 'ship') || (isCrossBranch && deliveryRoute === 'customer_dropoff' && value !== 'dropoff')} onClick={() => setRequestType(value as RequestType)} style={{ padding: '7px 8px', borderRadius: 7, border: `1px solid ${requestType === value ? ACCENT : t.borderLight}`, background: requestType === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: requestType === value ? ACCENT : t.textMuted, font: "600 11px 'Inter'", cursor: ((isCrossBranch && deliveryRoute === 'customer_ship' && value !== 'ship') || (isCrossBranch && deliveryRoute === 'customer_dropoff' && value !== 'dropoff')) ? 'not-allowed' : 'pointer', opacity: ((isCrossBranch && deliveryRoute === 'customer_ship' && value !== 'ship') || (isCrossBranch && deliveryRoute === 'customer_dropoff' && value !== 'dropoff')) ? 0.42 : 1 }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {requestType === 'dropoff' && (
+          {deliveryRoute === 'customer_dropoff' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 10 }}>
               <input value={dropoffCompany} onChange={(e) => setDropoffCompany(e.target.value)} placeholder="Company name" style={{ background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 11.5px 'Inter'", outline: 'none' }} />
               <textarea value={dropoffAddress} onChange={(e) => setDropoffAddress(e.target.value)} placeholder="Drop-off address" rows={3} style={{ resize: 'vertical', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 11.5px 'Inter'", outline: 'none' }} />

@@ -2,8 +2,9 @@ function normalizeStockStatus(value) {
   const raw = String(value || 'Available').trim().toLowerCase().replace(/[_-]+/g, ' ');
   if (!raw) return 'available';
   if (raw === 'available' || raw === 'in stock' || raw === 'instock') return 'available';
-  if (raw === 'on memo' || raw === 'memo' || raw === 'memo out') return 'on_memo';
-  if (raw === 'on hold' || raw === 'hold' || raw === 'held') return 'on_hold';
+  if (raw === 'on memo' || raw === 'onmemo' || raw === 'memo' || raw === 'memo out') return 'on_memo';
+  if (raw === 'on hold' || raw === 'onhold' || raw === 'hold' || raw === 'held') return 'on_hold';
+  if (raw === 'in transit' || raw === 'intransit') return 'in_transit';
   return raw.replace(/\s+/g, '_');
 }
 
@@ -12,6 +13,7 @@ function stockStatusLabel(status) {
   if (normalized === 'available') return 'Available';
   if (normalized === 'on_memo') return 'On Memo';
   if (normalized === 'on_hold') return 'On Hold';
+  if (normalized === 'in_transit') return 'In Transit';
   return normalized
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

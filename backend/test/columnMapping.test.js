@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseSheet } = require('../src/utils/columnMapping');
+const { parseSheet, createRowMapper } = require('../src/utils/columnMapping');
 
 test('loose stock measurements map from the daily client spreadsheet', () => {
   const { format, rows } = parseSheet([
@@ -17,4 +17,20 @@ test('loose stock measurements map from the daily client spreadsheet', () => {
     height_mm: 4.9,
     lw_ratio: 1.43,
   });
+});
+
+test('streaming row mapper detects jewelry and maps one row at a time', () => {
+  const mapper = createRowMapper(['Barcode', 'Branch', 'Status', 'Category', 'Metal', 'Amount']);
+  assert.equal(mapper.format, 'jewelry');
+  assert.deepEqual(
+    mapper.map(['J-1', 'Chicago', 'In Transit', 'Ring', '18K WG', 2500]),
+    {
+      barcode: 'J-1',
+      branch: 'Chicago',
+      stock_status: 'In Transit',
+      category: 'Ring',
+      metal: '18K WG',
+      amount: 2500,
+    }
+  );
 });

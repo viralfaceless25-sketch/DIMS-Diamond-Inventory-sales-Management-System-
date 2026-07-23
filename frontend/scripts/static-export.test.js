@@ -24,9 +24,12 @@ test('rep history is query-based so no build-time rep list is required', () => {
 
 test('public download page exposes versioned Windows release details', () => {
   const page = read('src/app/download/page.tsx');
+  const release = JSON.parse(read('src/release.json').replace(/^\uFEFF/, ''));
   assert.match(page, /release\.downloadUrl/);
   assert.match(page, /Windows 10 and Windows 11/);
   assert.match(page, /Windows protected your PC/);
   assert.match(page, /SHA-256/);
   assert.equal(fs.existsSync(path.join(root, 'src/release.json')), true);
+  assert.equal(release.version, '1.0.3');
+  assert.match(release.downloadUrl, /DiamondInventory-Setup-1\.0\.3\.exe$/);
 });
