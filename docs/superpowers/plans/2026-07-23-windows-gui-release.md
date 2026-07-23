@@ -26,7 +26,9 @@
 - `desktop-app/src-tauri/src/main.rs`: release GUI subsystem declaration and Tauri entry point.
 - `desktop-app/src-tauri/installer-hooks.nsh`: post-install shortcut migration.
 - `desktop-app/package.json`: npm package version.
+- `desktop-app/package-lock.json`: npm root package version lock.
 - `desktop-app/src-tauri/Cargo.toml`: Rust package version.
+- `desktop-app/src-tauri/Cargo.lock`: Rust package version lock.
 - `desktop-app/src-tauri/tauri.conf.json`: Tauri bundle version.
 - `scripts/publish-windows-installer.ps1`: existing immutable versioned artifact publisher.
 - `frontend/public/downloads/DiamondInventory-Setup-1.0.2.exe`: published immutable installer.
@@ -78,7 +80,9 @@
 - Modify: `desktop-app/src-tauri/src/main.rs:1`
 - Modify: `desktop-app/src-tauri/installer-hooks.nsh:1-3`
 - Modify: `desktop-app/package.json:3`
+- Modify: `desktop-app/package-lock.json:3,8`
 - Modify: `desktop-app/src-tauri/Cargo.toml:3`
+- Modify: `desktop-app/src-tauri/Cargo.lock:543`
 - Modify: `desktop-app/src-tauri/tauri.conf.json:4`
 - Test: `desktop-app/scripts/config.test.js`
 
@@ -103,15 +107,25 @@
   !macroend
   ```
 
-- [ ] **Step 3: Set the three package/config versions to `1.0.2`.**
+- [ ] **Step 3: Set every desktop package/config version to `1.0.2`.**
 
   ```json
   // desktop-app/package.json
   "version": "1.0.2"
   ```
 
+  ```json
+  // desktop-app/package-lock.json root and packages[""] entries
+  "version": "1.0.2"
+  ```
+
   ```toml
   # desktop-app/src-tauri/Cargo.toml
+  version = "1.0.2"
+  ```
+
+  ```toml
+  # desktop-app/src-tauri/Cargo.lock diamond-inventory package entry
   version = "1.0.2"
   ```
 
@@ -276,7 +290,9 @@
     docs/superpowers/plans/2026-07-23-windows-gui-release.md `
     desktop-app/scripts/config.test.js `
     desktop-app/package.json `
+    desktop-app/package-lock.json `
     desktop-app/src-tauri/Cargo.toml `
+    desktop-app/src-tauri/Cargo.lock `
     desktop-app/src-tauri/tauri.conf.json `
     desktop-app/src-tauri/src/main.rs `
     desktop-app/src-tauri/installer-hooks.nsh `

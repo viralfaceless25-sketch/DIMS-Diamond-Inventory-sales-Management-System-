@@ -6,11 +6,11 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('desktop package and installer are versioned for the first release', () => {
+test('desktop package and installer are versioned for the current release', () => {
   const pkg = JSON.parse(read('package.json'));
   const config = JSON.parse(read('src-tauri/tauri.conf.json'));
-  assert.equal(pkg.version, '1.0.1');
-  assert.equal(config.version, '1.0.1');
+  assert.equal(pkg.version, '1.0.2');
+  assert.equal(config.version, '1.0.2');
   assert.equal(config.productName, 'Diamond Inventory');
   assert.deepEqual(config.bundle.targets, ['nsis']);
 });
@@ -42,4 +42,11 @@ test('remote inventory content receives no Tauri capabilities', () => {
   assert.doesNotMatch(main, /invoke_handler|plugin\(/);
   assert.match(sourceConfig, /https:\/\/maitri-inventory-web\.onrender\.com/);
   assert.match(sourceConfig, /assert_eq!\(\s*url\.scheme\(\),\s*"https"/s);
+});
+
+test('release executable is a GUI application and removes the legacy local launcher', () => {
+  const main = read('src-tauri/src/main.rs');
+  const hooks = read('src-tauri/installer-hooks.nsh');
+  assert.match(main, /#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]/);
+  assert.match(hooks, /Delete "\$SMSTARTUP\\Diamond Inventory Server\.lnk"/);
 });
