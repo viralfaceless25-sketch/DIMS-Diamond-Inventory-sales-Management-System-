@@ -46,3 +46,6 @@ FINAL_HANDOFF*.md
 
 # Isolated feature worktrees
 .worktrees/
+
+# Local Superpowers design companion sessions
+.superpowers/
