@@ -4,6 +4,7 @@ require('dotenv').config();
 const pool = require('./pool');
 const { hashPassword, passwordError } = require('../utils/passwordSecurity');
 const { withTransaction } = require('./withRetry');
+const { staffAccounts } = require('./staffAccounts');
 
 const initialPassword = process.env.STAFF_INITIAL_PASSWORD;
 if (!initialPassword) {
@@ -11,33 +12,15 @@ if (!initialPassword) {
   process.exit(1);
 }
 
-const staff = [
-  ['sales@maitri.nyc', 'sales_rep', 'Surbhi', 'NY'],
-  ['sales1@maitri.nyc', 'sales_rep', 'Karan', 'NY'],
-  ['sales2@maitri.nyc', 'sales_rep', 'Parth', 'NY'],
-  ['sales3@maitri.nyc', 'sales_rep', 'Dhruvil', 'NY'],
-  ['sales4@maitri.nyc', 'sales_rep', 'Harsh', 'NY'],
-  ['sales5@maitri.nyc', 'sales_rep', 'Jash', 'NY'],
-  ['sales6@maitri.nyc', 'sales_rep', 'Keyush', 'NY'],
-  ['stocstockny@maitri.nyc', 'inventory', 'Inventory NY', 'NY'],
-  ['sales11@maitri.nyc', 'sales_rep', 'Romil', 'CH'],
-  ['sales12@maitri.nyc', 'sales_rep', 'Ajay', 'CH'],
-  ['fadi@maitri.nyc', 'sales_rep', 'Fadi', 'LA'],
-  ['parthik@maitri.nyc', 'sales_rep', 'Parthik', 'LA'],
-  ['sales20@maitri.nyc', 'sales_rep', 'Parth (LA)', 'LA'],
-  ['sales21@maitri.nyc', 'sales_rep', 'Sahil', 'CH'],
-];
-if (process.env.STAFF_CH_INVENTORY_EMAIL) staff.push([process.env.STAFF_CH_INVENTORY_EMAIL, 'inventory', 'Meet', 'CH']);
-if (process.env.STAFF_LA_INVENTORY_EMAIL) staff.push([process.env.STAFF_LA_INVENTORY_EMAIL, 'inventory', 'Chintan', 'LA']);
-
 async function main() {
   const error = passwordError(initialPassword);
   if (error) throw new Error(`STAFF_INITIAL_PASSWORD is not acceptable: ${error}`);
   const hash = await hashPassword(initialPassword);
   const created = [];
   const skipped = [];
-  for (const [rawEmail, role, name, branch] of staff) {
-    const email = rawEmail.toLowerCase().trim();
+  for (const account of staffAccounts()) {
+    const { role, name, branch } = account;
+    const email = account.email.toLowerCase().trim();
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rowCount) { skipped.push(email); continue; }
     await withTransaction(pool, async (client) => {
@@ -52,8 +35,5 @@ async function main() {
   console.log(`Created ${created.length} account(s); skipped ${skipped.length} existing account(s).`);
   created.forEach((line) => console.log(`  created: ${line}`));
   skipped.forEach((line) => console.log(`  skipped: ${line}`));
-  if (!process.env.STAFF_CH_INVENTORY_EMAIL || !process.env.STAFF_LA_INVENTORY_EMAIL) {
-    console.log('Chicago and Los Angeles inventory accounts were not created because their email addresses were not supplied.');
-  }
 }
 main().catch((err) => { console.error('Staff seeding failed:', err.message); process.exitCode = 1; }).finally(() => pool.end());
