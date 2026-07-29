@@ -15,6 +15,7 @@ const trackingRoute = require('./routes/tracking');
 const invoiceRoute = require('./routes/invoice');
 const adminRoute = require('./routes/admin');
 const transfersRoute = require('./routes/transfers');
+const receiptsRoute = require('./routes/receipts');
 
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN || '*';
@@ -48,6 +49,7 @@ app.use('/api/tracking', trackingRoute);
 app.use('/api/invoice', invoiceRoute);
 app.use('/api/admin', adminRoute);
 app.use('/api/transfers', transfersRoute);
+app.use('/api/receipts', receiptsRoute);
 
 // Centralized error handler — keep responses generic to the client, log the
 // real detail server-side.

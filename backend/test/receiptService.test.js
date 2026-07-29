@@ -1,12 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  assertHandoffAllowed,
   branchLocalDate,
   duplicateComponents,
   expectedComponents,
   nextPhysicalStatus,
   normalizeReceiptInput,
   receiptRollup,
+  receiptStatusLabel,
+  selectReceiptCandidate,
 } = require('../src/services/receiptService');
 
 test('receipt input normalizes one shared barcode and explicit components', () => {
@@ -134,4 +137,78 @@ test('physical arrival catches up the internal workflow but reports skipped step
     status: 'handed_to_rep',
     mismatch: null,
   });
+  assert.deepEqual(nextPhysicalStatus('ready_for_rep', false), {
+    status: 'received_at_destination',
+    mismatch: null,
+  });
+});
+
+test('selected match must belong to the scanned barcode and receiving branch', () => {
+  const candidates = [{
+    requestStoneId: 42,
+    requestId: 9,
+    barcode: '267157-00',
+    destinationBranch: 'NY',
+    sourceBranch: 'CH',
+  }];
+
+  assert.equal(
+    selectReceiptCandidate(candidates, 42, 'NY', '267157-00').requestId,
+    9
+  );
+  assert.throws(
+    () => selectReceiptCandidate(candidates, 42, 'LA', '267157-00'),
+    /no longer eligible/
+  );
+  assert.throws(
+    () => selectReceiptCandidate(candidates, 42, 'NY', 'OTHER-1'),
+    /no longer eligible/
+  );
+});
+
+test('handoff requires a complete internal shipment at its destination branch', () => {
+  const request = {
+    delivery_route: 'internal_transfer',
+    destination_branch: 'NY',
+    transfer_status: 'ready_for_rep',
+    status: 'half_fulfilled',
+  };
+  assert.doesNotThrow(() => assertHandoffAllowed({
+    request,
+    receivingBranch: 'NY',
+    rollup: { complete: true },
+  }));
+  assert.throws(() => assertHandoffAllowed({
+    request,
+    receivingBranch: 'LA',
+    rollup: { complete: true },
+  }), /destination inventory/);
+  assert.throws(() => assertHandoffAllowed({
+    request,
+    receivingBranch: 'NY',
+    rollup: { complete: false },
+  }), /Stone and certificate arrivals/);
+});
+
+test('receipt status labels support daily inventory triage', () => {
+  assert.equal(receiptStatusLabel({
+    matchState: 'unmatched',
+    requestComplete: false,
+    transferStatus: null,
+  }), 'Needs review');
+  assert.equal(receiptStatusLabel({
+    matchState: 'matched',
+    requestComplete: false,
+    transferStatus: 'received_at_destination',
+  }), 'Partial arrival');
+  assert.equal(receiptStatusLabel({
+    matchState: 'matched',
+    requestComplete: true,
+    transferStatus: 'ready_for_rep',
+  }), 'Ready for rep');
+  assert.equal(receiptStatusLabel({
+    matchState: 'matched',
+    requestComplete: true,
+    transferStatus: 'handed_to_rep',
+  }), 'Handed over');
 });

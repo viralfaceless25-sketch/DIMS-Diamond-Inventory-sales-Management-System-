@@ -15,6 +15,9 @@ test('movement labels cover the request lifecycle', () => {
   assert.equal(movementLabel('erp_transfer_rejected'), 'ERP BT rejected');
   assert.equal(movementLabel('branch_transfer_sent'), 'Branch transfer sent');
   assert.equal(movementLabel('branch_transfer_received'), 'Branch transfer received');
+  assert.equal(movementLabel('physical_receipt_recorded'), 'Physical receipt recorded');
+  assert.equal(movementLabel('physical_receipt_corrected'), 'Physical receipt corrected');
+  assert.equal(movementLabel('physical_receipt_linked'), 'Physical receipt linked');
   assert.equal(movementLabel('returned'), 'Returned');
 });
 

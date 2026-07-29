@@ -123,22 +123,61 @@ function nextPhysicalStatus(currentStatus, complete) {
     'packed',
     'shipped_to_destination',
     'received_at_destination',
+    'ready_for_rep',
   ]);
   if (!preReceive.has(status)) return { status, mismatch: null };
   return {
     status: complete ? 'ready_for_rep' : 'received_at_destination',
-    mismatch: ['shipped_to_destination', 'received_at_destination'].includes(status)
-      ? null
-      : {
+    mismatch: ['awaiting_source', 'packed'].includes(status)
+      ? {
         previousTransferStatus: status,
         reason: 'physical_arrival_ahead_of_workflow',
-      },
+      }
+      : null,
   };
+}
+
+function selectReceiptCandidate(candidates, requestStoneId, receivingBranch, barcode) {
+  const normalizedBranch = normalizeSourceBranch(receivingBranch);
+  const normalizedBarcode = normalizeBarcode(barcode);
+  const normalizedId = Number(requestStoneId);
+  const candidate = candidates.find((row) => (
+    Number(row.requestStoneId ?? row.request_stone_id) === normalizedId
+    && String(row.destinationBranch ?? row.destination_branch ?? '').toUpperCase() === normalizedBranch
+    && String(row.barcode || '').trim().toUpperCase() === normalizedBarcode
+  ));
+  if (!candidate) {
+    throw receiptError('The selected request is no longer eligible for this receipt', 409);
+  }
+  return candidate;
+}
+
+function assertHandoffAllowed({ request, receivingBranch, rollup }) {
+  if (!request || request.delivery_route !== 'internal_transfer') {
+    throw receiptError('Only an internal branch shipment can be handed to a sales rep', 409);
+  }
+  const destinationBranch = String(request.destination_branch || request.delivery_branch || request.branch || '').toUpperCase();
+  if (destinationBranch !== normalizeSourceBranch(receivingBranch)) {
+    throw receiptError('Only destination inventory can hand this shipment to the sales rep', 403);
+  }
+  if (request.status === 'cancelled') throw receiptError('A cancelled request cannot be handed over', 409);
+  if (request.transfer_status === 'handed_to_rep') throw receiptError('This shipment was already handed to the sales rep', 409);
+  if (!rollup?.complete) {
+    throw receiptError('Stone and certificate arrivals must be complete before handoff', 409);
+  }
+}
+
+function receiptStatusLabel({ matchState, requestComplete, transferStatus }) {
+  if (matchState !== 'matched') return 'Needs review';
+  if (transferStatus === 'handed_to_rep') return 'Handed over';
+  if (requestComplete) return 'Ready for rep';
+  return 'Partial arrival';
 }
 
 module.exports = {
   BRANCH_TIME_ZONES,
   VALID_BRANCHES,
+  assertHandoffAllowed,
   branchLocalDate,
   duplicateComponents,
   expectedComponents,
@@ -146,4 +185,6 @@ module.exports = {
   normalizeBarcode,
   normalizeReceiptInput,
   receiptRollup,
+  receiptStatusLabel,
+  selectReceiptCandidate,
 };
