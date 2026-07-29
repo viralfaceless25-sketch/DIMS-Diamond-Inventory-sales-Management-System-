@@ -4,9 +4,16 @@ function requestError(message, status = 409) {
   return error;
 }
 
-function assertInventoryRequestMutation({ request, actorBranch }) {
+function assertInventoryRequestMutation({
+  request,
+  actorBranch,
+  mutationField = null,
+}) {
   if (request.status === 'cancelled') {
     throw requestError('A cancelled request cannot be updated');
+  }
+  if (mutationField === 'returned' && request.status !== 'fulfilled') {
+    throw requestError('A return can be recorded only for a completed request');
   }
   const sourceBranch = request.fulfillment_branch || request.branch;
 
@@ -21,17 +28,29 @@ function assertInventoryRequestMutation({ request, actorBranch }) {
   const status = request.transfer_status || 'awaiting_source';
   if (route === 'internal_transfer') {
     const destinationBranch = request.delivery_branch || request.branch;
-    if (actorBranch !== destinationBranch || status !== 'ready_for_rep') {
+    const allowedStatus = mutationField === 'returned'
+      ? 'handed_to_rep'
+      : 'ready_for_rep';
+    if (actorBranch !== destinationBranch || status !== allowedStatus) {
       throw requestError(
-        'Only destination inventory can confirm stones after the transfer is ready for the sales rep'
+        mutationField === 'returned'
+          ? 'Only destination inventory can record a return after handoff to the sales rep'
+          : 'Only destination inventory can confirm stones after the transfer is ready for the sales rep'
       );
     }
     return;
   }
 
-  if (actorBranch !== sourceBranch || status !== 'packed') {
+  const allowedStatus = mutationField === 'returned'
+    ? route === 'customer_ship'
+      ? 'shipped_to_customer'
+      : 'dropped_off_to_customer'
+    : 'packed';
+  if (actorBranch !== sourceBranch || status !== allowedStatus) {
     throw requestError(
-      'Only supplying inventory can confirm stones after the package is marked packed'
+      mutationField === 'returned'
+        ? 'Only supplying inventory can record a returned customer delivery'
+        : 'Only supplying inventory can confirm stones after the package is marked packed'
     );
   }
 }

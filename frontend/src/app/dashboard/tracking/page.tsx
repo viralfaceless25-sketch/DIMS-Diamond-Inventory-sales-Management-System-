@@ -5,13 +5,16 @@ import { api, TrackingRow } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
-import { ACCENT, AMBER, BLUE } from '@/lib/theme';
+import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
 
 const MOVEMENT_FILTERS = [
   ['', 'All movements'],
   ['requested', 'Requested'],
-  ['erp_transfer_recorded', 'ERP transfer'],
+  ['erp_transfer_issued', 'ERP BT issued'],
+  ['erp_receive_requested', 'ERP receipt requested'],
+  ['erp_transfer_received', 'ERP BT received'],
+  ['erp_transfer_rejected', 'ERP BT rejected'],
   ['branch_transfer_sent', 'Transfer sent'],
   ['branch_transfer_received', 'Transfer received'],
   ['handed_to_rep', 'Handed to rep'],
@@ -49,10 +52,15 @@ export default function TrackingPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await api.tracking(branch, search, page, movement);
-    setRows(result.rows);
-    setTotal(result.total);
-    setLoading(false);
+    try {
+      const result = await api.tracking(branch, search, page, movement);
+      setRows(result.rows);
+      setTotal(result.total);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not load stone tracking.');
+    } finally {
+      setLoading(false);
+    }
   }, [branch, search, page, movement]);
 
   useEffect(() => { load(); }, [load]);
@@ -106,7 +114,9 @@ export default function TrackingPage() {
                   <div style={{ font: "700 11px 'Inter'", color: t.textMuted }}>{row.fulfillment_branch || row.branch}</div>
                   <div style={{ font: "700 11px 'Inter'", color: t.textMuted }}>{row.current_branch}</div>
                   <div>
-                    <div style={{ font: "700 10.5px 'Inter'", color: STATUS_COLOR[row.trackingStatus] || t.textMuted }}>{TRACKING_LABELS[row.trackingStatus]}</div>
+                    <div style={{ font: "700 10.5px 'Inter'", color: row.request_status === 'cancelled' ? RED : STATUS_COLOR[row.trackingStatus] || t.textMuted }}>
+                      {row.request_status === 'cancelled' ? 'Request cancelled' : TRACKING_LABELS[row.trackingStatus]}
+                    </div>
                     <div style={{ font: "600 9.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>{row.currentStockStatusLabel}</div>
                   </div>
                   <div style={{ font: "600 10px 'Inter'", color: latest ? t.textMuted : t.textFaint }}>{latest?.movementLabel || 'Requested'}</div>
@@ -115,6 +125,30 @@ export default function TrackingPage() {
 
                 {open && (
                   <div style={{ padding: '0 16px 16px', background: t.bgSide, overflowX: 'auto' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(220px, 1fr))', gap: 9, padding: '12px 0 4px', minWidth: 760 }}>
+                      <div style={{ padding: 10, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 8 }}>
+                        <div style={{ font: "800 9.5px 'Inter'", color: t.textFaint }}>DAILY EXCEL SNAPSHOT</div>
+                        <div style={{ marginTop: 5, font: "700 11px 'Inter'", color: row.snapshot.active ? t.text : AMBER }}>
+                          {row.snapshot.active ? `${row.snapshot.branch || 'Unknown branch'} · ${row.currentStockStatusLabel}` : 'Not in latest ERP snapshot'}
+                        </div>
+                        <div style={{ marginTop: 4, font: "500 9.5px 'Inter'", color: t.textFaint }}>
+                          {row.snapshot.lastSeenAt ? `Last seen ${formatDate(row.snapshot.lastSeenAt)}` : row.snapshot.missingSince ? `Missing since ${formatDate(row.snapshot.missingSince)}` : 'No snapshot timestamp'}
+                        </div>
+                      </div>
+                      <div style={{ padding: 10, background: t.bgCard, border: `1px solid ${row.snapshotReconciliation.state === 'mismatch' ? RED : t.border}`, borderRadius: 8 }}>
+                        <div style={{ font: "800 9.5px 'Inter'", color: t.textFaint }}>SNAPSHOT RECONCILIATION</div>
+                        <div style={{ marginTop: 5, font: "700 11px 'Inter'", color: row.snapshotReconciliation.state === 'mismatch' ? RED : row.snapshotReconciliation.state === 'reconciled' ? GREEN : t.text }}>
+                          {row.snapshotReconciliation.label}
+                        </div>
+                      </div>
+                      <div style={{ padding: 10, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 8 }}>
+                        <div style={{ font: "800 9.5px 'Inter'", color: t.textFaint }}>LIVE / CONFIRMED ERP</div>
+                        <div style={{ marginTop: 5, font: "700 10.5px 'Inter'", color: row.erp_transfer_confirmed ? GREEN : t.textFaint }}>BT issued: {row.erp_transfer_confirmed ? 'yes' : 'no'}</div>
+                        <div style={{ marginTop: 3, font: "700 10.5px 'Inter'", color: row.erp_transfer_received ? GREEN : t.textFaint }}>BT received: {row.erp_transfer_received ? 'yes' : 'no'}</div>
+                        {row.liveErpVerification && <div style={{ marginTop: 3, font: "700 10px 'Inter'", color: GREEN }}>Availability rechecked live at {formatDate(row.liveErpVerification.verifiedAt)}</div>}
+                        {row.request_status === 'cancelled' && <div style={{ marginTop: 3, font: "700 10px 'Inter'", color: RED }}>Rejected: {row.cancellation_status?.replaceAll('_', ' ') || 'unavailable'}{row.cancellation_reason ? ` · ${row.cancellation_reason}` : ''}</div>}
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 0' }}>
                       {[row.shape || row.item || row.category, row.carat ? `${row.carat} cts` : row.diamond_cts ? `${row.diamond_cts} d.cts` : null, row.color, row.clarity, row.lab].filter(Boolean).map((value) => (
                         <span key={String(value)} style={{ padding: '4px 7px', borderRadius: 5, background: 'oklch(78% 0.13 240 / 0.13)', color: ACCENT, font: "700 10px 'Inter'" }}>{value}</span>

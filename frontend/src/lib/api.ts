@@ -39,11 +39,35 @@ export interface AdminUser {
 }
 
 export interface Availability {
-  status: 'in_stock' | 'requested' | 'conflict' | 'on_memo' | 'on_hold' | 'in_transit' | string;
+  status: 'in_stock' | 'requested' | 'conflict' | 'on_memo' | 'on_hold' | 'in_transit' | 'not_in_snapshot' | string;
   label?: string;
   repName?: string;
   repCount?: number;
   holders?: { requestId: number; repId: number; repName: string }[];
+}
+
+export interface StockSnapshot {
+  active: boolean;
+  branch: string | null;
+  stockStatus: string | null;
+  lastSeenAt: string | null;
+  missingSince: string | null;
+}
+
+export interface SnapshotReconciliation {
+  state: 'current' | 'missing' | 'stale' | 'reconciled' | 'mismatch';
+  label: string;
+}
+
+export interface LiveErpVerification {
+  id: number;
+  snapshotStatus: string | null;
+  snapshotActive: boolean;
+  snapshotLastSeenAt: string | null;
+  verifiedStatus: 'available';
+  verifiedAt: string;
+  verifiedBy: number | null;
+  verifierEmail: string | null;
 }
 
 export interface LooseStone {
@@ -63,6 +87,8 @@ export interface LooseStone {
   height_mm: number | string | null;
   lw_ratio: number | string | null;
   stock_status?: string | null;
+  snapshot_active?: boolean;
+  last_seen_at?: string | null;
   cost?: number | string | null;
   availability: Availability;
 }
@@ -84,6 +110,8 @@ export interface JewelryPiece {
   lab: string | null;
   cert_no: string | null;
   stock_status?: string | null;
+  snapshot_active?: boolean;
+  last_seen_at?: string | null;
   amount: number | string | null;
   availability: Availability;
 }
@@ -105,11 +133,34 @@ export interface RequestStone {
   item: string | null;
   duplicate?: boolean;
   duplicateWith?: string[];
+  snapshot?: StockSnapshot;
+  snapshotReconciliation?: SnapshotReconciliation;
+  liveErpVerification?: LiveErpVerification | null;
 }
 
-export type BatchStatus = 'awaiting' | 'half_fulfilled' | 'fulfilled';
+export type BatchStatus = 'awaiting' | 'half_fulfilled' | 'fulfilled' | 'cancelled';
 
-export interface RequestSummary {
+export interface ErpTransferFields {
+  workflowVersion: number;
+  erpTransferConfirmed: boolean;
+  erpTransferConfirmedAt?: string | null;
+  erpTransferConfirmedBy?: number | null;
+  erpTransferIssued?: boolean;
+  erpTransferIssuedAt?: string | null;
+  erpTransferIssuedBy?: number | null;
+  erpTransferReceived?: boolean;
+  erpTransferReceivedAt?: string | null;
+  erpTransferReceivedBy?: number | null;
+  erpReceiveRequested?: boolean;
+  erpReceiveRequestedAt?: string | null;
+  erpReceiveRequestedBy?: number | null;
+  cancelledAt?: string | null;
+  cancelledBy?: number | null;
+  cancellationStatus?: string | null;
+  cancellationReason?: string | null;
+}
+
+export interface RequestSummary extends ErpTransferFields {
   id: number;
   branch: string;
   fulfillmentBranch: string;
@@ -118,11 +169,9 @@ export interface RequestSummary {
   deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus: string | null;
-  erpTransferConfirmed: boolean;
-  erpTransferConfirmedAt?: string | null;
-  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed: boolean;
   hasLabel?: boolean;
+  hasPaperwork?: boolean;
   requestedAt: string;
   status: BatchStatus;
   source: string;
@@ -135,7 +184,7 @@ export interface RequestSummary {
   hasDuplicate: boolean;
 }
 
-export interface RequestDetail {
+export interface RequestDetail extends ErpTransferFields {
   id: number;
   branch: string;
   fulfillmentBranch: string;
@@ -144,11 +193,9 @@ export interface RequestDetail {
   deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus: string | null;
-  erpTransferConfirmed: boolean;
-  erpTransferConfirmedAt?: string | null;
-  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed: boolean;
   hasLabel?: boolean;
+  hasPaperwork?: boolean;
   requestedAt: string;
   status: BatchStatus;
   source: string;
@@ -160,7 +207,7 @@ export interface RequestDetail {
   stones: RequestStone[];
 }
 
-export interface MyRequest {
+export interface MyRequest extends Partial<ErpTransferFields> {
   id: number;
   branch: string;
   fulfillmentBranch?: string;
@@ -169,11 +216,9 @@ export interface MyRequest {
   deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
   paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
   transferStatus?: string | null;
-  erpTransferConfirmed?: boolean;
-  erpTransferConfirmedAt?: string | null;
-  erpTransferConfirmedBy?: number | null;
   resolutionConfirmed?: boolean;
   hasLabel?: boolean;
+  hasPaperwork?: boolean;
   requestedAt: string;
   status: BatchStatus;
   requestScope?: 'stone_and_cert' | 'stone_only' | 'cert_only';
@@ -195,6 +240,7 @@ export interface RequestStats {
   stonesRequested: number;
   duplicateFlags: number;
   fulfilledRequests: number;
+  cancelledRequests: number;
 }
 
 export interface StockQuery {
@@ -262,10 +308,17 @@ export interface TrackingRow {
   request_type: 'urgent' | 'local' | 'ship' | 'dropoff' | 'pickup';
   request_status: BatchStatus;
   requested_at: string;
+  cancelled_at: string | null;
+  cancellation_status: string | null;
+  cancellation_reason: string | null;
+  erp_transfer_confirmed: boolean;
+  erp_transfer_confirmed_at: string | null;
+  erp_transfer_received: boolean;
+  erp_transfer_received_at: string | null;
   rep_name: string;
   cert_no: string | null;
   current_branch: string;
-  current_stock_status: string;
+  current_stock_status: string | null;
   currentStockStatusLabel: string;
   lab: string | null;
   shape: string | null;
@@ -276,6 +329,9 @@ export interface TrackingRow {
   item: string | null;
   diamond_cts: number | string | null;
   trackingStatus: 'requested' | 'partially_given' | 'with_rep' | 'returned';
+  snapshot: StockSnapshot;
+  snapshotReconciliation: SnapshotReconciliation;
+  liveErpVerification: LiveErpVerification | null;
   movements: TrackingMovement[];
 }
 
@@ -312,6 +368,7 @@ export interface ExtractedStone {
   reason?: 'not_in_stock' | 'wrong_branch' | 'on_memo' | 'on_hold' | string;
   stockBranch?: string | null;
   stock_status?: string | null;
+  last_seen_at?: string | null;
   availabilityLabel?: string | null;
   confidence?: 'high' | 'low';
   branch?: string;
@@ -319,11 +376,36 @@ export interface ExtractedStone {
 
 export interface ExtractResult {
   stones: ExtractedStone[];
+  repBranch?: string;
   totalDetected?: number;
   availableCount?: number;
   unavailableCount?: number;
   unavailable?: { barcode: string; reason: string; stockBranch: string | null }[];
   warning?: string;
+}
+
+export interface StockRecheck {
+  id: number;
+  salesRepId: number;
+  salesRepName: string | null;
+  barcode: string;
+  itemType: 'loose' | 'jewelry';
+  homeBranch: string;
+  state: 'pending' | 'verified_available' | 'verified_unavailable' | 'consumed' | 'cancelled';
+  snapshot: {
+    active: boolean;
+    stockStatus: string | null;
+    lastSeenAt: string | null;
+  };
+  verifiedStatus: string | null;
+  note: string | null;
+  requestedAt: string;
+  verifiedAt: string | null;
+  verifiedBy: number | null;
+  verifierEmail: string | null;
+  consumedAt: string | null;
+  consumedRequestId: number | null;
+  reused?: boolean;
 }
 
 // ---- Token storage (localStorage; fine for a real app, unlike artifacts) ----
@@ -379,19 +461,29 @@ async function request<T>(
   return data as T;
 }
 
-async function shippingLabelUrl(requestId: number): Promise<string> {
+async function requestDocumentUrl(
+  requestId: number,
+  document: 'shipping-label' | 'paperwork'
+): Promise<string> {
   const token = getToken();
-  const res = await fetch(`${API_URL}/api/transfers/${requestId}/shipping-label`, {
+  const res = await fetch(`${API_URL}/api/transfers/${requestId}/${document}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
     const text = await res.text();
-    let message = 'Could not open the shipping label';
+    let message = document === 'shipping-label'
+      ? 'Could not open the shipping label'
+      : 'Could not open the invoice or memo paperwork';
     try { message = JSON.parse(text)?.error || message; } catch { /* response is not JSON */ }
     throw new ApiError(res.status, message);
   }
   return URL.createObjectURL(await res.blob());
 }
+
+const shippingLabelUrl = (requestId: number) =>
+  requestDocumentUrl(requestId, 'shipping-label');
+const paperworkUrl = (requestId: number) =>
+  requestDocumentUrl(requestId, 'paperwork');
 
 // ---- Endpoints ----
 
@@ -490,23 +582,93 @@ export const api = {
       dropoffAddress?: string;
       deliveryRoute?: 'internal_transfer' | 'customer_ship' | 'customer_dropoff';
       paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
+      fulfillmentChoice?:
+        | 'local_urgent'
+        | 'local_dropoff'
+        | 'local_ship'
+        | 'local'
+        | 'bt_to_rep_branch'
+        | 'bt_customer_ship'
+        | 'bt_customer_dropoff'
+        | 'bt_to_branch';
+      deliveryBranch?: 'NY' | 'LA' | 'CH';
     } = {}
   ) =>
-    request<{ id: number; branch: string; stones: RequestStone[]; status: BatchStatus }>(
+    request<{
+      id: number;
+      branch: string;
+      fulfillmentBranch: string;
+      deliveryBranch: string;
+      crossBranch: boolean;
+      deliveryRoute: 'internal_transfer' | 'customer_ship' | 'customer_dropoff' | null;
+      workflowVersion: number;
+      stones: RequestStone[];
+      status: BatchStatus;
+    }>(
       '/api/requests',
       { method: 'POST', body: JSON.stringify({ stones, source, ...options }) }
     ),
   uploadShippingLabel: (requestId: number, file: File) => {
     const form = new FormData(); form.append('label', file);
-    return request<{ ok: true; fileName: string }>(`/api/transfers/${requestId}/shipping-label`, { method: 'POST', body: form }, true);
+    return request<{ ok: true; requestId: number; hasLabel: true; labelFileName: string }>(`/api/transfers/${requestId}/shipping-label`, { method: 'POST', body: form }, true);
+  },
+  uploadPaperwork: (requestId: number, paperworkType: 'invoice' | 'memo', file: File) => {
+    const form = new FormData();
+    form.append('paperworkType', paperworkType);
+    form.append('paperwork', file);
+    return request<{
+      ok: true;
+      requestId: number;
+      paperworkType: 'invoice' | 'memo';
+      hasPaperwork: true;
+      paperworkFileName: string;
+    }>(`/api/transfers/${requestId}/paperwork`, { method: 'POST', body: form }, true);
   },
   setPaperworkType: (requestId: number, paperworkType: 'none' | 'invoice' | 'memo') =>
     request<{ ok: true; paperworkType: 'none' | 'invoice' | 'memo' }>(`/api/transfers/${requestId}/paperwork`, { method: 'PATCH', body: JSON.stringify({ paperworkType }) }),
   shippingLabelUrl,
+  paperworkUrl,
   setTransferStatus: (requestId: number, action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer') =>
     request<{ transferStatus: string }>(`/api/transfers/${requestId}/status`, { method: 'PATCH', body: JSON.stringify({ action }) }),
   confirmErpTransfer: (requestId: number) =>
     request<{ id: number; erpTransferConfirmed: true }>(`/api/transfers/${requestId}/erp-transfer`, { method: 'PATCH' }),
+  requestErpReceive: (requestId: number) =>
+    request<{ id: number; erpReceiveRequested: true }>(`/api/transfers/${requestId}/request-erp-receive`, { method: 'PATCH' }),
+  confirmErpReceived: (requestId: number) =>
+    request<{ id: number; erpTransferReceived: true }>(`/api/transfers/${requestId}/erp-received`, { method: 'PATCH' }),
+  rejectErpUnavailable: (requestId: number, liveStatus: string, reason?: string) =>
+    request<{
+      id: number;
+      status: 'cancelled';
+      transferStatus: 'cancelled';
+      cancellationStatus: string;
+      cancellationReason: string | null;
+    }>(`/api/transfers/${requestId}/erp-unavailable`, {
+      method: 'PATCH',
+      body: JSON.stringify({ liveStatus, reason }),
+    }),
+
+  // live ERP rechecks bridge status changes that happen after the daily Excel snapshot
+  myStockRechecks: () => request<StockRecheck[]>('/api/stock-rechecks/mine'),
+  stockRecheckQueue: (state: StockRecheck['state'] = 'pending') =>
+    request<{ branch: string; rows: StockRecheck[] }>(
+      `/api/stock-rechecks/queue?state=${encodeURIComponent(state)}`
+    ),
+  requestStockRecheck: (barcode: string, itemType: 'loose' | 'jewelry') =>
+    request<StockRecheck>('/api/stock-rechecks', {
+      method: 'POST',
+      body: JSON.stringify({ barcode, itemType }),
+    }),
+  resolveStockRecheck: (
+    id: number,
+    result:
+      | { decision: 'available'; note?: string }
+      | { decision: 'unavailable'; liveStatus: string; note?: string }
+  ) =>
+    request<StockRecheck>(`/api/stock-rechecks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(result),
+    }),
 
   // tracking (inventory)
   tracking: (branch: string, search?: string, page = 1, movement?: string) => {
@@ -516,10 +678,9 @@ export const api = {
   },
 
   // invoice (sales rep)
-  extractInvoice: (file: File, branch?: string) => {
+  extractInvoice: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    if (branch) form.append('branch', branch);
     return request<ExtractResult>('/api/invoice/extract', { method: 'POST', body: form }, true);
   },
 };

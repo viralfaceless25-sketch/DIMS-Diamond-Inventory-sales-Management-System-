@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, RequestSummary, RequestDetail, RequestStats, RequestStone } from '@/lib/api';
+import { api, RequestSummary, RequestDetail, RequestStats, RequestStone, StockRecheck } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useAuth } from '@/lib/auth';
@@ -9,7 +9,10 @@ import { TopBar } from '@/components/TopBar';
 import { Check, StatusBadge, DuplicateBadge, Avatar } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
-import { hasDeliveryWorkflow } from '@/lib/requestWorkflow';
+import {
+  documentStepState,
+  hasDeliveryWorkflow,
+} from '@/lib/requestWorkflow';
 
 const STONE_TABLE_COLS = '58px 58px 58px minmax(170px,1.35fr) minmax(150px,1fr) 96px 72px 88px minmax(170px,1fr)';
 
@@ -26,18 +29,27 @@ export default function RequestsPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [scanMessage, setScanMessage] = useState('');
   const [copiedBarcode, setCopiedBarcode] = useState('');
+  const [rechecks, setRechecks] = useState<StockRecheck[]>([]);
   const [loading, setLoading] = useState(true);
   const scannerBufferRef = useRef({ value: '', lastKeyAt: 0 });
   const scannerTimerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
-    const [s, r] = await Promise.all([
-      api.stats(branch),
-      api.requests({ branch, view, sort, search }),
-    ]);
-    setStats(s);
-    setRequests(r);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const [s, r, recheckQueue] = await Promise.all([
+        api.stats(branch),
+        api.requests({ branch, view, sort, search }),
+        api.stockRecheckQueue(),
+      ]);
+      setStats(s);
+      setRequests(r);
+      setRechecks(recheckQueue.rows);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not load the inventory request queue.');
+    } finally {
+      setLoading(false);
+    }
   }, [branch, view, sort, search]);
 
   useEffect(() => {
@@ -167,7 +179,7 @@ export default function RequestsPage() {
   }
 
   async function confirmErpTransfer(requestId: number) {
-    if (!window.confirm('Confirm that the branch transfer has been entered in Maitri ERP.')) return;
+    if (!window.confirm('Confirm that the supplying branch issued this branch transfer in Maitri ERP.')) return;
     try {
       await api.confirmErpTransfer(requestId);
       setExpanded((current) => current[requestId]
@@ -176,6 +188,52 @@ export default function RequestsPage() {
       await load();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not confirm the ERP branch transfer.');
+    }
+  }
+
+  async function confirmErpReceived(requestId: number) {
+    if (!window.confirm('Confirm that this branch received the BT digitally in Maitri ERP. Physical arrival is tracked separately.')) return;
+    try {
+      await api.confirmErpReceived(requestId);
+      setExpanded((current) => current[requestId]
+        ? { ...current, [requestId]: { ...current[requestId], erpTransferReceived: true } }
+        : current);
+      await load();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not confirm ERP BT receipt.');
+    }
+  }
+
+  async function rejectErpTransfer(request: RequestSummary) {
+    const liveStatus = window.prompt(
+      'Current Maitri ERP status (On Hold, On Memo, In Transit, Sold, or another unavailable status):',
+      'On Hold'
+    );
+    if (!liveStatus) return;
+    const reason = window.prompt(
+      'Optional note for the sales rep:',
+      `Cannot issue BT from ${request.fulfillmentBranch}`
+    ) || undefined;
+    if (!window.confirm(`Cancel request #${request.id} because ERP now shows "${liveStatus}"?`)) return;
+    try {
+      await api.rejectErpUnavailable(request.id, liveStatus, reason);
+      await load();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not reject this ERP BT.');
+    }
+  }
+
+  async function resolveRecheck(
+    recheck: StockRecheck,
+    result:
+      | { decision: 'available'; note?: string }
+      | { decision: 'unavailable'; liveStatus: string; note?: string }
+  ) {
+    try {
+      await api.resolveStockRecheck(recheck.id, result);
+      await load();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not resolve the live ERP recheck.');
     }
   }
 
@@ -199,18 +257,47 @@ export default function RequestsPage() {
     }
   }
 
+  async function openPaperwork(requestId: number) {
+    try {
+      const url = await api.paperworkUrl(requestId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not open the invoice or memo.');
+    }
+  }
+
+  function requestDocumentState(r: RequestSummary) {
+    return documentStepState({
+      workflowVersion: r.workflowVersion,
+      crossBranch: r.crossBranch,
+      erpTransferReceived: r.erpTransferReceived,
+      paperworkType: r.paperworkType,
+      hasPaperwork: r.hasPaperwork,
+      hasLabel: r.hasLabel,
+    });
+  }
+
   function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer'; label: string } | null {
+    if (r.status === 'cancelled' || r.status === 'fulfilled') return null;
     if (!hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute)) return null;
     const status = r.transferStatus || 'awaiting_source';
     const isSource = user?.branch === r.fulfillmentBranch;
     const isDestination = user?.branch === r.deliveryBranch;
     if (status === 'awaiting_source' && isSource && (!r.crossBranch || r.erpTransferConfirmed)) return { action: 'pack', label: 'Mark packed' };
-    if (status === 'packed' && r.deliveryRoute === 'internal_transfer' && isSource) return { action: 'ship', label: `Ship to ${r.branch}` };
-    if (status === 'packed' && r.deliveryRoute === 'customer_ship' && itemsConfirmed && isSource) return { action: 'ship_customer', label: 'Ship to customer' };
-    if (status === 'packed' && r.deliveryRoute === 'customer_dropoff' && itemsConfirmed && isSource) return { action: 'dropoff_customer', label: 'Mark dropped off' };
+    if (status === 'packed' && r.deliveryRoute === 'internal_transfer' && isSource) return { action: 'ship', label: `Ship to ${r.deliveryBranch}` };
+    if (status === 'packed'
+        && r.deliveryRoute === 'customer_ship'
+        && itemsConfirmed
+        && r.resolutionConfirmed
+        && isSource
+        && requestDocumentState(r).ready) {
+      return { action: 'ship_customer', label: 'Ship to customer' };
+    }
+    if (status === 'packed' && r.deliveryRoute === 'customer_dropoff' && itemsConfirmed && r.resolutionConfirmed && isSource) return { action: 'dropoff_customer', label: 'Mark dropped off' };
     if (status === 'shipped_to_destination' && isDestination) return { action: 'receive', label: 'Mark received' };
     if (status === 'received_at_destination' && isDestination) return { action: 'ready', label: 'Ready for sales rep' };
-    if (status === 'ready_for_rep' && itemsConfirmed && isDestination) return { action: 'hand_to_rep', label: 'Hand to sales rep' };
+    if (status === 'ready_for_rep' && itemsConfirmed && r.resolutionConfirmed && isDestination) return { action: 'hand_to_rep', label: 'Hand to sales rep' };
     return null;
   }
 
@@ -258,13 +345,26 @@ export default function RequestsPage() {
   }
 
   function canConfirmItems(r: RequestSummary) {
+    if (r.status === 'cancelled' || r.status === 'fulfilled') return false;
     const status = r.transferStatus || 'awaiting_source';
     if (r.deliveryRoute === 'customer_ship' || r.deliveryRoute === 'customer_dropoff') {
       return user?.branch === r.fulfillmentBranch && status === 'packed';
     }
     if (!r.crossBranch) return true;
-    if (r.deliveryRoute === 'internal_transfer') return user?.branch === r.branch && status === 'ready_for_rep';
+    if (r.deliveryRoute === 'internal_transfer') return user?.branch === r.deliveryBranch && status === 'ready_for_rep';
     return false;
+  }
+
+  function canMarkReturned(r: RequestSummary) {
+    if (r.status !== 'fulfilled') return false;
+    if (!r.crossBranch) return user?.branch === r.fulfillmentBranch;
+    if (r.deliveryRoute === 'internal_transfer') {
+      return user?.branch === r.deliveryBranch
+        && r.transferStatus === 'handed_to_rep';
+    }
+    return user?.branch === r.fulfillmentBranch
+      && ['shipped_to_customer', 'dropped_off_to_customer']
+        .includes(r.transferStatus || '');
   }
 
   const statCards = [
@@ -272,6 +372,7 @@ export default function RequestsPage() {
     { label: 'Stones requested', value: stats?.stonesRequested ?? '-' },
     { label: 'Duplicate tags', value: stats?.duplicateFlags ?? '-', warn: (stats?.duplicateFlags ?? 0) > 0 },
     { label: 'Fulfilled requests', value: stats?.fulfilledRequests ?? '-', good: true },
+    { label: 'Cancelled after ERP check', value: stats?.cancelledRequests ?? '-', warn: (stats?.cancelledRequests ?? 0) > 0 },
   ];
 
   return (
@@ -279,7 +380,38 @@ export default function RequestsPage() {
       <TopBar title="Requests" branch={branch} onBranch={setBranch} search={search} onSearch={setSearch} t={t} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 22 }}>
+        {rechecks.length > 0 && (
+          <div style={{ marginBottom: 20, padding: 16, background: 'oklch(75% 0.14 80 / 0.08)', border: '1px solid oklch(75% 0.14 80 / 0.28)', borderRadius: 12 }}>
+            <div style={{ font: "800 13px 'Inter'", color: AMBER }}>LIVE MAITRI ERP RECHECKS — {user?.branch}</div>
+            <div style={{ marginTop: 4, font: "500 11px 'Inter'", color: t.textFaint }}>
+              These are stones blocked by the morning Excel snapshot. Check Maitri ERP now; this verification does not rewrite the daily stock file.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 12 }}>
+              {rechecks.map((recheck) => (
+                <div key={recheck.id} style={{ display: 'grid', gridTemplateColumns: '160px minmax(130px,1fr) 120px minmax(340px,auto)', gap: 10, alignItems: 'center', padding: '9px 10px', background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ font: "800 11px 'JetBrains Mono'", color: t.text }}>{recheck.barcode}</span>
+                    <button onClick={() => copyBarcode(recheck.barcode)} style={{ padding: '3px 5px', borderRadius: 4, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: t.textMuted, cursor: 'pointer', font: "700 9px 'Inter'" }}>
+                      {copiedBarcode === recheck.barcode ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>
+                    {recheck.salesRepName || 'Sales rep'} · snapshot {recheck.snapshot.stockStatus?.replaceAll('_', ' ') || 'missing'}
+                  </div>
+                  <div style={{ font: "600 10px 'Inter'", color: t.textFaint }}>{timeAgo(recheck.requestedAt)}</div>
+                  <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'available', note: 'Released and available in live Maitri ERP' })} style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 9.5px 'Inter'" }}>Available now</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_hold' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>Still on hold</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_memo' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>On memo</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'in_transit' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>In transit</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 14, marginBottom: 22 }}>
           {statCards.map((c) => (
             <div key={c.label} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ font: "700 26px 'JetBrains Mono'", color: c.warn ? RED : c.good ? ACCENT : t.text }}>{c.value}</div>
@@ -329,6 +461,8 @@ export default function RequestsPage() {
                       {group.requests.map((r) => {
                         const detail = expanded[r.id];
                         const allChecked = isRequestChecked(r, detail);
+                        const documents = requestDocumentState(r);
+                        const strictDocuments = Number(r.workflowVersion || 1) >= 2;
                         return (
                           <div key={r.id} style={{ background: t.bgCard, border: `1px solid ${requestTypeStyle(r.requestType).border}`, borderRadius: 12, overflow: 'hidden' }}>
                             <div onClick={() => toggleExpand(r.id)} style={{ display: 'grid', gridTemplateColumns: '92px minmax(0,1fr) 70px 90px 80px minmax(0,190px)', alignItems: 'center', gap: 12, padding: '13px 16px', cursor: 'pointer' }}>
@@ -346,7 +480,7 @@ export default function RequestsPage() {
                                   <RequestTypeBadge label={requestTypeLabel(r.requestType)} styleInfo={requestTypeStyle(r.requestType)} />
                                 </div>
                                 <div style={{ font: "500 11.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
-                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')} - paperwork: ${r.paperworkType === 'pending' ? 'pending decision' : r.paperworkType === 'none' ? 'no paperwork' : r.paperworkType}` : requestScopeLabel(r.requestScope)} - {r.source === 'invoice_upload' ? 'via invoice' : 'manual'}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
+                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}${r.deliveryRoute === 'customer_ship' ? ` - paperwork: ${documents.paperworkComplete ? r.paperworkType : 'pending'}` : ''}` : requestScopeLabel(r.requestScope)} - {r.source === 'invoice_upload' ? 'via invoice' : 'manual'}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
                                 </div>
                               </div>
                               <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>
@@ -354,7 +488,7 @@ export default function RequestsPage() {
                               <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.stoneCount} stone{r.stoneCount === 1 ? '' : 's'}</div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                                 <StatusBadge status={r.status} />
-                                {r.deliveryRoute === 'customer_ship' && r.paperworkType === 'pending' && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
+                                {r.deliveryRoute === 'customer_ship' && !documents.paperworkComplete && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
                                 {r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
                                 {r.hasDuplicate && <DuplicateBadge reps={[]} />}
                               </div>
@@ -367,28 +501,66 @@ export default function RequestsPage() {
                                   <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>Scan a requested physical stone now. No field needs to be selected.</span>
                                   {scanMessage && <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{scanMessage}</span>}
                                 </div>
-                                {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) && <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
-                                  <span style={{ font: "700 12px 'Inter'", color: t.text }}>Transfer route: {r.fulfillmentBranch}{' -> '}{r.deliveryBranch}</span>
-                                  <span style={{ font: "600 11px 'Inter'", color: t.textMuted }}>{r.deliveryRoute?.replaceAll('_', ' ')}</span>
-                                  {r.crossBranch && !r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && <span style={{ font: "800 10.5px 'Inter'", color: AMBER }}>ERP branch transfer required</span>}
-                                  {r.crossBranch && !r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && <button onClick={() => confirmErpTransfer(r.id)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: AMBER, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>Confirm ERP branch transfer completed</button>}
-                                  {r.crossBranch && r.erpTransferConfirmed && <span style={{ font: "800 10.5px 'Inter'", color: ACCENT }}>ERP BRANCH TRANSFER CONFIRMED</span>}
-                                  {r.deliveryRoute === 'customer_ship' && r.hasLabel && <button onClick={() => openShippingLabel(r.id)} style={{ padding: '8px 12px', borderRadius: 7, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 11px 'Inter'" }}>Open shipping label</button>}
-                                  {transferNext(r, allChecked) && <button onClick={() => updateTransfer(r.id, transferNext(r, allChecked)!.action)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>{transferNext(r, allChecked)!.label}</button>}
-                                  {['packed', 'ready_for_rep'].includes(r.transferStatus || 'awaiting_source') && !allChecked && <span style={{ font: "700 11px 'Inter'", color: t.textFaint }}>Confirm required items below before final delivery.</span>}
-                                </div>}
+                                {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) && (
+                                  <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 9, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                      <span style={{ font: "700 12px 'Inter'", color: t.text }}>Physical route: {r.fulfillmentBranch}{' → '}{r.deliveryBranch}</span>
+                                      <span style={{ font: "600 11px 'Inter'", color: t.textMuted }}>{r.deliveryRoute?.replaceAll('_', ' ')}</span>
+                                      <span style={{ font: "700 10.5px 'Inter'", color: t.textFaint }}>Movement: {(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}</span>
+                                      {transferNext(r, allChecked) && (
+                                        <button onClick={() => updateTransfer(r.id, transferNext(r, allChecked)!.action)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>
+                                          {transferNext(r, allChecked)!.label}
+                                        </button>
+                                      )}
+                                      {['packed', 'ready_for_rep'].includes(r.transferStatus || 'awaiting_source') && !allChecked && <span style={{ font: "700 11px 'Inter'", color: t.textFaint }}>Confirm required items below before final delivery.</span>}
+                                    </div>
+
+                                    {r.crossBranch && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
+                                        <span style={{ font: "800 10.5px 'Inter'", color: t.text }}>MAITRI ERP DIGITAL BT</span>
+                                        <span style={{ font: "700 10.5px 'Inter'", color: r.erpTransferConfirmed ? ACCENT : AMBER }}>
+                                          {r.fulfillmentBranch} issue: {r.erpTransferConfirmed ? 'completed' : 'waiting'}
+                                        </span>
+                                        {!r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && (
+                                          <>
+                                            <button onClick={() => confirmErpTransfer(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: AMBER, color: '#0a0e0d', cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Confirm ERP BT issued</button>
+                                            <button onClick={() => rejectErpTransfer(r)} style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${RED}`, background: 'transparent', color: RED, cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Cannot issue BT</button>
+                                          </>
+                                        )}
+                                        <span style={{ color: t.textFaint }}>→</span>
+                                        <span style={{ font: "700 10.5px 'Inter'", color: r.erpTransferReceived ? ACCENT : r.erpReceiveRequested ? AMBER : t.textFaint }}>
+                                          {r.deliveryBranch} receipt: {r.erpTransferReceived ? 'completed' : r.erpReceiveRequested ? 'requested by sales rep' : 'not requested'}
+                                        </span>
+                                        {r.erpTransferConfirmed && !r.erpTransferReceived && user?.branch === r.deliveryBranch && (
+                                          <button onClick={() => confirmErpReceived(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: r.erpReceiveRequested ? AMBER : ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Receive ERP BT now</button>
+                                        )}
+                                        <span style={{ font: "500 9.5px 'Inter'", color: t.textFaint }}>Digital receipt is independent of physical arrival.</span>
+                                      </div>
+                                    )}
+
+                                    {r.deliveryRoute === 'customer_ship' && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                        <span style={{ font: "800 10px 'Inter'", color: documents.paperworkComplete ? ACCENT : AMBER }}>Step 1 paperwork: {documents.paperworkComplete ? r.paperworkType : 'pending'}</span>
+                                        {r.hasPaperwork && <button onClick={() => openPaperwork(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 10px 'Inter'" }}>Open paperwork</button>}
+                                        <span style={{ font: "800 10px 'Inter'", color: r.hasLabel ? ACCENT : AMBER }}>Step 2 label: {r.hasLabel ? 'uploaded' : 'pending'}</span>
+                                        {r.hasLabel && <button onClick={() => openShippingLabel(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 10px 'Inter'" }}>Open shipping label</button>}
+                                        {strictDocuments && r.crossBranch && !r.erpTransferReceived && <span style={{ font: "700 10px 'Inter'", color: AMBER }}>ERP receipt is required before customer paperwork and shipment.</span>}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                                 <div style={{ minWidth: 1040 }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 11.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
                                   <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canConfirmItems(r)} size={18} /></div>
                                   <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canConfirmItems(r)} size={18} /></div>
-                                  <div title="Mark every requested item returned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>RET</span><Check checked={detail.stones.every((stone) => stone.returned)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.returned), 'returned')} disabled={!canConfirmItems(r)} accent="oklch(75% 0.13 250)" size={18} /></div>
+                                  <div title="Mark every requested item returned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>RET</span><Check checked={detail.stones.every((stone) => stone.returned)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.returned), 'returned')} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" size={18} /></div>
                                   <div>STOCK #</div><div>SHAPE</div><div>CARAT</div><div>COL</div><div>CLTY</div><div>CERT #</div>
                                 </div>
                                 {detail.stones.map((s) => (
                                   <div key={s.id} style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '13px 18px', alignItems: 'center', minHeight: 52, borderTop: `1px solid ${t.rowBorder}`, background: s.duplicate ? 'oklch(70% 0.17 30 / 0.08)' : 'transparent' }}>
                                     <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canConfirmItems(r)} />
                                     <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canConfirmItems(r)} />
-                                    <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canConfirmItems(r)} accent="oklch(75% 0.13 250)" />
+                                    <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" />
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</span>
                                       <button

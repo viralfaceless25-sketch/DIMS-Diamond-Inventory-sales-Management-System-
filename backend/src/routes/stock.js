@@ -216,6 +216,7 @@ router.get('/loose', async (req, res, next) => {
         JOIN requests r ON r.id = rs.request_id
         WHERE rs.barcode = loose_diamonds.barcode
           AND rs.returned = false
+          AND r.status <> 'cancelled'
       )`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -299,6 +300,7 @@ router.get('/jewelry', async (req, res, next) => {
         JOIN requests r ON r.id = rs.request_id
         WHERE rs.barcode = jewelry_pieces.barcode
           AND rs.returned = false
+          AND r.status <> 'cancelled'
       )`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

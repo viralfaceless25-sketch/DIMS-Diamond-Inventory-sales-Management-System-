@@ -2,7 +2,10 @@ const express = require('express');
 const pool = require('../db/pool');
 const { sortStones } = require('../services/sortingService');
 const { computeBatchStatus, isActive } = require('../services/statusService');
-const { deriveRequestStatus } = require('../services/resolutionService');
+const {
+  deriveMutationState,
+  deriveRequestStatus,
+} = require('../services/resolutionService');
 const { getHoldersMap } = require('../services/duplicateService');
 const {
   homeBranchForStock,
@@ -170,10 +173,16 @@ async function inventoryBranch(userId) {
   return rows[0]?.branch || null;
 }
 
-async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) {
+async function applyStoneMutationAndRecompute(
+  requestId,
+  actorBranch,
+  mutateFn,
+  { mutationField = null } = {}
+) {
   return withTransaction(pool, async (client) => {
     const { rows: lockRows } = await client.query(
-      `SELECT branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, transfer_status, request_scope, status
+      `SELECT branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, transfer_status,
+              request_scope, status, resolution_confirmed
        FROM requests WHERE id = $1 FOR UPDATE`,
       [requestId]
     );
@@ -183,15 +192,40 @@ async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) 
       throw err;
     }
 
-    assertInventoryRequestMutation({ request: lockRows[0], actorBranch });
+    assertInventoryRequestMutation({
+      request: lockRows[0],
+      actorBranch,
+      mutationField,
+    });
 
     await mutateFn(client);
 
     const stones = await fetchStonesForRequest(requestId, client);
-    const status = deriveRequestStatus(stones, lockRows[0].request_scope || 'stone_and_cert', false);
-    await client.query('UPDATE requests SET status = $1, resolution_confirmed = false WHERE id = $2', [status, requestId]);
+    const mutationState = deriveMutationState({
+      stones,
+      requestScope: lockRows[0].request_scope || 'stone_and_cert',
+      mutationField,
+      currentStatus: lockRows[0].status,
+      currentResolutionConfirmed: lockRows[0].resolution_confirmed,
+    });
+    await client.query(
+      `UPDATE requests
+       SET status = $1, resolution_confirmed = $2
+       WHERE id = $3`,
+      [
+        mutationState.status,
+        mutationState.resolutionConfirmed,
+        requestId,
+      ]
+    );
 
-    return { stones, status, branch: lockRows[0].branch, fulfillmentBranch: lockRows[0].fulfillment_branch, crossBranch: lockRows[0].cross_branch };
+    return {
+      stones,
+      status: mutationState.status,
+      branch: lockRows[0].branch,
+      fulfillmentBranch: lockRows[0].fulfillment_branch,
+      crossBranch: lockRows[0].cross_branch,
+    };
   });
 }
 
@@ -627,7 +661,7 @@ router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, 
           actorId: req.user.id,
         });
       }
-    });
+    }, { mutationField: field });
 
     broadcast(branch, 'request:updated', { requestId: Number(id), status });
     if (crossBranch) broadcast(fulfillmentBranch, 'request:updated', { requestId: Number(id), status });
@@ -721,7 +755,7 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
           }
         }
       }
-    });
+    }, { mutationField: field || null });
 
     broadcast(branch, 'request:updated', { requestId: Number(id), status });
     if (crossBranch) broadcast(fulfillmentBranch, 'request:updated', { requestId: Number(id), status });
@@ -754,13 +788,37 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
       if (!rows[0]) { const err = new Error('Request not found'); err.status = 404; throw err; }
       assertInventoryRequestMutation({ request: rows[0], actorBranch });
       const stones = await fetchStonesForRequest(id, client);
-      const status = deriveRequestStatus(stones, rows[0].request_scope, true);
+      const status = deriveRequestStatus(
+        stones,
+        rows[0].request_scope,
+        true,
+        Boolean(rows[0].delivery_route)
+      );
       await client.query('UPDATE requests SET status = $1, resolution_confirmed = true WHERE id = $2', [status, id]);
-      return { stones, branch: rows[0].branch, fulfillmentBranch: rows[0].fulfillment_branch, crossBranch: rows[0].cross_branch };
+      return {
+        stones,
+        status,
+        branch: rows[0].branch,
+        fulfillmentBranch: rows[0].fulfillment_branch,
+        crossBranch: rows[0].cross_branch,
+      };
     });
-    broadcast(result.branch, 'request:completed', { requestId: id });
-    if (result.crossBranch) broadcast(result.fulfillmentBranch, 'request:completed', { requestId: id });
-    res.json({ id, status: 'fulfilled', stones: result.stones, resolutionConfirmed: true });
+    const event = result.status === 'fulfilled'
+      ? 'request:completed'
+      : 'request:updated';
+    broadcast(result.branch, event, { requestId: id, status: result.status });
+    if (result.crossBranch) {
+      broadcast(result.fulfillmentBranch, event, {
+        requestId: id,
+        status: result.status,
+      });
+    }
+    res.json({
+      id,
+      status: result.status,
+      stones: result.stones,
+      resolutionConfirmed: true,
+    });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);

@@ -66,6 +66,7 @@ const STATUS_COLORS: Record<string, string> = {
   awaiting: AMBER,
   half_fulfilled: AMBER,
   fulfilled: GREEN,
+  cancelled: RED,
   nothing_found: RED,
   returned: BLUE,
 };

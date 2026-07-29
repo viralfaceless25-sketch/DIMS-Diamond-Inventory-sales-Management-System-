@@ -57,6 +57,9 @@ function assertErpTransferAction({
     if (actorRole !== 'sales_rep' || actorSalesRepId !== request.sales_rep_id) {
       throw erpError(403, 'Only the request owner can ask inventory to receive this ERP BT');
     }
+    if (!request.erp_transfer_confirmed) {
+      throw erpError(409, 'The branch transfer must be issued in ERP first');
+    }
     return;
   }
 

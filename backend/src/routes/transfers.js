@@ -3,7 +3,10 @@ const multer = require('multer');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { withTransaction } = require('../db/withRetry');
-const { getTransferAction } = require('../services/transferService');
+const {
+  getTransferAction,
+  requestStatusAfterTransfer,
+} = require('../services/transferService');
 const {
   assertErpTransferAction,
   buildErpUnavailableResolution,
@@ -91,7 +94,7 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
     const result = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
         `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
-                r.cross_branch, r.delivery_route, r.transfer_status, r.request_scope, r.resolution_confirmed, r.paperwork_type, r.workflow_version,
+                r.cross_branch, r.delivery_route, r.transfer_status, r.status, r.request_scope, r.resolution_confirmed, r.paperwork_type, r.workflow_version,
                 r.erp_transfer_confirmed, r.erp_transfer_received,
                 EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
                 EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = r.id) AS has_paperwork
@@ -114,7 +117,14 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
         erpTransferConfirmed: transfer.erp_transfer_confirmed,
         erpTransferReceived: transfer.erp_transfer_received,
       });
-      await client.query('UPDATE requests SET transfer_status = $2 WHERE id = $1', [requestId, nextStatus]);
+      const nextRequestStatus = requestStatusAfterTransfer(
+        transfer.status,
+        nextStatus
+      );
+      await client.query(
+        'UPDATE requests SET transfer_status = $2, status = $3 WHERE id = $1',
+        [requestId, nextStatus, nextRequestStatus]
+      );
       await recordRequestMovement(client, requestId, {
         movementType: movementForTransferAction(action),
         fromBranch: transfer.fulfillment_branch,
@@ -122,7 +132,11 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
         actorId: req.user.id,
         details: { action, status: nextStatus, deliveryRoute: transfer.delivery_route },
       });
-      return { ...transfer, transferStatus: nextStatus };
+      return {
+        ...transfer,
+        transferStatus: nextStatus,
+        status: nextRequestStatus,
+      };
     });
     await writeAudit({ actorId: req.user.id, action: 'transfer.status_changed', targetType: 'request', targetId: requestId, ip: req.ip, details: { action, status: result.transferStatus } });
     broadcast(result.fulfillment_branch, 'transfer:updated', { requestId, status: result.transferStatus });

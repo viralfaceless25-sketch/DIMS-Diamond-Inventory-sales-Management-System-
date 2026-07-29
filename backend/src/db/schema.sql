@@ -109,6 +109,19 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_status TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS workflow_version INTEGER NOT NULL DEFAULT 1;
 
+-- Older builds marked a request fulfilled as soon as inventory reviewed its
+-- items, which hid unfinished delivery actions from the active queue. Reopen
+-- only delivery rows that have not reached a physical terminal state.
+UPDATE requests
+SET status = 'half_fulfilled'
+WHERE status = 'fulfilled'
+  AND delivery_route IS NOT NULL
+  AND COALESCE(transfer_status, '') NOT IN (
+    'handed_to_rep',
+    'shipped_to_customer',
+    'dropped_off_to_customer'
+  );
+
 -- One row per stone inside a request batch
 CREATE TABLE IF NOT EXISTS request_stones (
   id             SERIAL PRIMARY KEY,

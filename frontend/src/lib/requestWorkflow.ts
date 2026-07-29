@@ -3,6 +3,30 @@ export type DeliveryRoute =
   | 'customer_ship'
   | 'customer_dropoff';
 
+export type FulfillmentChoice =
+  | 'local_urgent'
+  | 'local_dropoff'
+  | 'local_ship'
+  | 'local'
+  | 'bt_to_rep_branch'
+  | 'bt_customer_ship'
+  | 'bt_customer_dropoff'
+  | 'bt_to_branch';
+
+const LOCAL_CHOICES: FulfillmentChoice[] = [
+  'local_urgent',
+  'local_dropoff',
+  'local_ship',
+  'local',
+];
+
+const BT_CHOICES: FulfillmentChoice[] = [
+  'bt_to_rep_branch',
+  'bt_customer_ship',
+  'bt_customer_dropoff',
+  'bt_to_branch',
+];
+
 export interface AvailabilityLike {
   status: string;
   label?: string | null;
@@ -22,6 +46,7 @@ export function availabilityText(availability: AvailabilityLike) {
   if (availability.status === 'on_memo') return 'On Memo';
   if (availability.status === 'on_hold') return 'On Hold';
   if (availability.status === 'in_transit') return 'In Transit';
+  if (availability.status === 'not_in_snapshot') return 'Not in latest ERP snapshot';
   return String(availability.status || 'Unavailable');
 }
 
@@ -44,6 +69,58 @@ export function fulfillmentLabel(
     : `Ship to my branch (${repBranch})`;
 }
 
+export function fulfillmentChoicesFor(
+  homeBranch: string | null,
+  repBranch: string
+): FulfillmentChoice[] {
+  if (!homeBranch) return [];
+  if (homeBranch === repBranch) return [...LOCAL_CHOICES];
+  return [...BT_CHOICES];
+}
+
+export function defaultFulfillmentChoice(
+  homeBranch: string | null,
+  repBranch: string
+): FulfillmentChoice | null {
+  if (!homeBranch) return null;
+  return homeBranch !== repBranch
+    ? 'bt_to_rep_branch'
+    : 'local';
+}
+
+export function fulfillmentChoiceLabel(
+  choice: FulfillmentChoice,
+  repBranch: string
+) {
+  const labels: Record<FulfillmentChoice, string> = {
+    local_urgent: 'Urgent',
+    local_dropoff: 'Drop off to customer',
+    local_ship: 'Shipment to customer',
+    local: `Local pickup (${repBranch})`,
+    bt_to_rep_branch: `BT ship stone/cert to ${repBranch}`,
+    bt_customer_ship: 'BT ship stone/cert to customer',
+    bt_customer_dropoff: 'BT drop off stone/cert to customer',
+    bt_to_branch: 'BT ship to another branch',
+  };
+  return labels[choice];
+}
+
+export function deliveryRouteForChoice(
+  choice: FulfillmentChoice | null
+): DeliveryRoute | null {
+  if (!choice) return null;
+  if (['local_ship', 'bt_customer_ship'].includes(choice)) {
+    return 'customer_ship';
+  }
+  if (['local_dropoff', 'bt_customer_dropoff'].includes(choice)) {
+    return 'customer_dropoff';
+  }
+  if (choice === 'bt_to_rep_branch' || choice === 'bt_to_branch') {
+    return 'internal_transfer';
+  }
+  return null;
+}
+
 export function requestTypeForFulfillment(
   route: DeliveryRoute,
   crossBranch: boolean
@@ -58,4 +135,35 @@ export function hasDeliveryWorkflow(
   route: DeliveryRoute | null | undefined
 ) {
   return Boolean(crossBranch) || route === 'customer_ship' || route === 'customer_dropoff';
+}
+
+export function documentStepState({
+  workflowVersion,
+  crossBranch,
+  erpTransferReceived,
+  paperworkType,
+  hasPaperwork,
+  hasLabel,
+}: {
+  workflowVersion?: number;
+  crossBranch?: boolean;
+  erpTransferReceived?: boolean;
+  paperworkType?: 'none' | 'pending' | 'invoice' | 'memo';
+  hasPaperwork?: boolean;
+  hasLabel?: boolean;
+}) {
+  const strictWorkflow = Number(workflowVersion || 1) >= 2;
+  const paperworkEnabled = !strictWorkflow
+    || !crossBranch
+    || Boolean(erpTransferReceived);
+  const paperworkComplete = strictWorkflow
+    ? Boolean(hasPaperwork)
+    : paperworkType !== 'pending';
+  const labelEnabled = paperworkEnabled && paperworkComplete;
+  return {
+    paperworkEnabled,
+    paperworkComplete,
+    labelEnabled,
+    ready: paperworkEnabled && paperworkComplete && Boolean(hasLabel),
+  };
 }

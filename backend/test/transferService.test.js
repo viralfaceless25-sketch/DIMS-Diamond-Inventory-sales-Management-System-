@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { getTransferAction } = require('../src/services/transferService');
+const {
+  getTransferAction,
+  requestStatusAfterTransfer,
+} = require('../src/services/transferService');
 
 test('only the supplying branch can pack an internal transfer', () => {
   assert.equal(getTransferAction({ route: 'internal_transfer', status: 'awaiting_source', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'pack', erpTransferConfirmed: true }), 'packed');
@@ -96,4 +99,12 @@ test('version-2 customer shipment requires ERP receipt and both real files', () 
     () => getTransferAction({ ...ready, hasLabel: false }),
     /shipping label/
   );
+});
+
+test('only final physical delivery closes the active request', () => {
+  assert.equal(requestStatusAfterTransfer('half_fulfilled', 'packed'), 'half_fulfilled');
+  assert.equal(requestStatusAfterTransfer('half_fulfilled', 'ready_for_rep'), 'half_fulfilled');
+  assert.equal(requestStatusAfterTransfer('half_fulfilled', 'handed_to_rep'), 'fulfilled');
+  assert.equal(requestStatusAfterTransfer('half_fulfilled', 'shipped_to_customer'), 'fulfilled');
+  assert.equal(requestStatusAfterTransfer('half_fulfilled', 'dropped_off_to_customer'), 'fulfilled');
 });

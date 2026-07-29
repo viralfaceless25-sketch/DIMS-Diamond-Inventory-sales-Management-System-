@@ -8,8 +8,11 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('inventory requests expose ERP confirmation and barcode copy actions', () => {
   const page = read('src/app/dashboard/requests/page.tsx');
-  assert.match(page, /ERP branch transfer required/);
+  assert.match(page, /MAITRI ERP DIGITAL BT/);
   assert.match(page, /confirmErpTransfer/);
+  assert.match(page, /confirmErpReceived/);
+  assert.match(page, /rejectErpTransfer/);
+  assert.match(page, /LIVE MAITRI ERP RECHECKS/);
   assert.match(page, /navigator\.clipboard\.writeText/);
   assert.match(page, /Copy barcode/);
 });
@@ -26,6 +29,19 @@ test('sales-rep requests have no manual branch-pair routing controls', () => {
 
 test('local customer shipping keeps paperwork and label controls', () => {
   const page = read('src/app/rep/request-stones/page.tsx');
+  const myRequests = read('src/app/rep/my-requests/page.tsx');
   assert.doesNotMatch(page, /requiresCustomerShipment\s*=\s*isCrossBranch/);
   assert.match(page, /hasDeliveryWorkflow\(isCrossBranch, deliveryRoute\)/);
+  assert.match(myRequests, /Step 1 complete/);
+  assert.match(myRequests, /Step 2 complete/);
+  assert.match(myRequests, /updateLegacyPaperworkDecision/);
+  assert.match(myRequests, /api\.setPaperworkType/);
+  assert.match(myRequests, /documentStepState/);
+});
+
+test('invoice review groups requestable items by their stored home branch', () => {
+  const page = read('src/app/rep/request-stones/page.tsx');
+  assert.match(page, /extractedBranches/);
+  assert.match(page, /Load \{count\} from \{invoiceBranch\} into cart/);
+  assert.doesNotMatch(page, /sendReviewedExtracted/);
 });

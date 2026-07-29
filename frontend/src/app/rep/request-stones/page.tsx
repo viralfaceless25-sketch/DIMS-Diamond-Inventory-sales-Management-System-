@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, LooseStone, JewelryPiece, ExtractedStone } from '@/lib/api';
+import { api, LooseStone, JewelryPiece, ExtractedStone, StockRecheck } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme, useCartBadge, useStockFilters } from '../repContext';
@@ -11,10 +11,12 @@ import {
   availabilityText,
   canAddToHomeBranch,
   canRequestAvailability,
-  DeliveryRoute,
-  fulfillmentLabel,
+  defaultFulfillmentChoice,
+  deliveryRouteForChoice,
+  FulfillmentChoice,
+  fulfillmentChoiceLabel,
+  fulfillmentChoicesFor,
   hasDeliveryWorkflow,
-  requestTypeForFulfillment,
 } from '@/lib/requestWorkflow';
 import { Check } from '@/components/ui';
 
@@ -26,10 +28,10 @@ interface CartItem {
   clarity: string | null;
   itemType: string;
   branch: string;
+  source?: 'manual' | 'invoice_upload';
 }
 
 type RequestScope = 'stone_and_cert' | 'stone_only' | 'cert_only';
-type PaperworkType = 'none' | 'pending' | 'invoice' | 'memo';
 
 const STOCK_TABLE_COLUMNS = '40px minmax(0,1.1fr) 48px 90px 70px minmax(165px,1.1fr) 50px 60px minmax(0,1.1fr)';
 
@@ -54,10 +56,15 @@ export default function RequestStonesPage() {
   const [barcodeEntry, setBarcodeEntry] = useState('');
   const [barcodeMsg, setBarcodeMsg] = useState('');
   const [barcodeError, setBarcodeError] = useState(false);
+  const [lookupRecheckItems, setLookupRecheckItems] = useState<Array<{
+    barcode: string;
+    itemType: 'loose' | 'jewelry';
+  }>>([]);
   const [requestScope, setRequestScope] = useState<RequestScope>('stone_and_cert');
-  const [deliveryRoute, setDeliveryRoute] = useState<DeliveryRoute>('internal_transfer');
-  const [paperworkType, setPaperworkType] = useState<PaperworkType>('none');
-  const [shippingLabelFile, setShippingLabelFile] = useState<File | null>(null);
+  const [fulfillmentChoice, setFulfillmentChoice] = useState<FulfillmentChoice | null>(null);
+  const [deliveryBranch, setDeliveryBranch] = useState<'NY' | 'LA' | 'CH'>('NY');
+  const [rechecks, setRechecks] = useState<StockRecheck[]>([]);
+  const [recheckBusy, setRecheckBusy] = useState<string | null>(null);
   const [dropoffCompany, setDropoffCompany] = useState('');
   const [dropoffAddress, setDropoffAddress] = useState('');
 
@@ -66,13 +73,24 @@ export default function RequestStonesPage() {
   const [extractName, setExtractName] = useState('');
   const [extracted, setExtracted] = useState<ExtractedStone[] | null>(null);
   const [extractWarning, setExtractWarning] = useState('');
-  const [sentSummary, setSentSummary] = useState<ExtractedStone[] | null>(null);
   const [unavailable, setUnavailable] = useState<ExtractedStone[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const shippingLabelInputRef = useRef<HTMLInputElement>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
+  const homeBranch = cart[0]?.branch || null;
+  const isCrossBranch = Boolean(homeBranch && homeBranch !== branch);
+  const deliveryRoute = deliveryRouteForChoice(fulfillmentChoice);
+  const deliveryWorkflow = hasDeliveryWorkflow(isCrossBranch, deliveryRoute);
+  const extractedBranches = [...new Set(
+    (extracted || [])
+      .filter((stone) => isExtractedRequestable(stone))
+      .map((stone) => stone.stockBranch || stone.branch)
+      .filter((value): value is string => Boolean(value))
+  )].sort();
+  const unavailableNow = unavailable.filter(
+    (stone) => !isExtractedRequestable(stone)
+  );
 
   // Drag-and-drop state. dragDepth is a counter (incremented on dragenter,
   // decremented on dragleave) so the overlay doesn't flicker when the cursor
@@ -82,21 +100,31 @@ export default function RequestStonesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await api.looseStock({
-      // Sales reps browse every branch. The selected supply route is enforced
-      // when a row is added, so one request cannot mix supplying branches.
-      branch: 'ALL',
-      page,
-      pageSize: PAGE_SIZE,
-      search: search || undefined,
-      colors: colorFilter,
-      clarities: clarityFilter,
-      shapes: shapeFilter,
-      requestableOnly: false,
-    });
-    setStock(res.rows);
-    setTotal(res.total);
-    setLoading(false);
+    try {
+      const [res, recheckRows] = await Promise.all([
+        api.looseStock({
+          // Sales reps browse every branch. The selected supply route is enforced
+          // when a row is added, so one request cannot mix supplying branches.
+          branch: 'ALL',
+          page,
+          pageSize: PAGE_SIZE,
+          search: search || undefined,
+          colors: colorFilter,
+          clarities: clarityFilter,
+          shapes: shapeFilter,
+          requestableOnly: false,
+        }),
+        api.myStockRechecks(),
+      ]);
+      setStock(res.rows);
+      setTotal(res.total);
+      setRechecks(recheckRows);
+    } catch (error) {
+      setConfirmMsg(error instanceof Error ? error.message : 'Could not load stock.');
+      setConfirmError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [page, search, colorFilter, clarityFilter, shapeFilter]);
 
   useEffect(() => {
@@ -110,10 +138,79 @@ export default function RequestStonesPage() {
     setPage(1);
   }, [search, colorFilter, clarityFilter, shapeFilter, branch]);
   useBranchSocket(branch, (ev) => {
-    if (ev === 'stock:updated' || ev.startsWith('request:')) load();
+    if (ev === 'stock:updated' || ev.startsWith('request:') || ev.startsWith('stock:recheck_')) load();
   });
+  useEffect(() => {
+    const nextChoice = defaultFulfillmentChoice(homeBranch, branch);
+    setFulfillmentChoice(nextChoice);
+    const branchChoices = (['NY', 'LA', 'CH'] as const)
+      .filter((candidate) => candidate !== homeBranch);
+    setDeliveryBranch(
+      branchChoices.find((candidate) => candidate !== branch)
+        || branchChoices[0]
+        || 'NY'
+    );
+    setDropoffCompany('');
+    setDropoffAddress('');
+  }, [homeBranch, branch]);
 
   const inCart = (barcode: string) => cart.some((c) => c.barcode === barcode);
+
+  function latestRecheck(barcode: string, itemType: 'loose' | 'jewelry') {
+    return rechecks.find(
+      (recheck) => recheck.barcode === barcode
+        && recheck.itemType === itemType
+    );
+  }
+
+  function hasUsableLiveVerification(
+    item: Pick<LooseStone, 'barcode' | 'last_seen_at'>,
+    itemType: 'loose' | 'jewelry'
+  ) {
+    const recheck = latestRecheck(item.barcode, itemType);
+    if (recheck?.state !== 'verified_available' || !recheck.verifiedAt) return false;
+    const verifiedAt = new Date(recheck.verifiedAt).getTime();
+    const snapshotAt = item.last_seen_at
+      ? new Date(item.last_seen_at).getTime()
+      : null;
+    return Number.isFinite(verifiedAt)
+      && (!snapshotAt || verifiedAt > snapshotAt);
+  }
+
+  function isExtractedRequestable(stone: ExtractedStone) {
+    return stone.available || hasUsableLiveVerification(
+      { barcode: stone.barcode, last_seen_at: stone.last_seen_at },
+      stone.item_type
+    );
+  }
+
+  async function requestLiveRecheck(
+    event: React.MouseEvent,
+    item: Pick<LooseStone, 'barcode'>,
+    itemType: 'loose' | 'jewelry'
+  ) {
+    event.stopPropagation();
+    setRecheckBusy(item.barcode);
+    setConfirmMsg('');
+    setConfirmError(false);
+    try {
+      const result = await api.requestStockRecheck(item.barcode, itemType);
+      setRechecks((current) => [
+        result,
+        ...current.filter((row) => row.id !== result.id),
+      ]);
+      setConfirmMsg(
+        result.state === 'verified_available'
+          ? `${item.barcode} was already verified available. You can add it now.`
+          : `${item.barcode} was sent to ${result.homeBranch} inventory for a live ERP recheck.`
+      );
+    } catch (error) {
+      setConfirmMsg(error instanceof Error ? error.message : 'Could not request a live ERP recheck.');
+      setConfirmError(true);
+    } finally {
+      setRecheckBusy(null);
+    }
+  }
 
   function availabilityColor(av: LooseStone['availability']) {
     if (av.status === 'in_stock') return ACCENT;
@@ -124,7 +221,8 @@ export default function RequestStonesPage() {
   function toggleCart(s: LooseStone) {
     setConfirmMsg('');
     setConfirmError(false);
-    if (!canRequestAvailability(s.availability)) {
+    if (!canRequestAvailability(s.availability)
+        && !hasUsableLiveVerification(s, 'loose')) {
       setConfirmMsg(`${s.barcode} cannot be requested: ${availabilityText(s.availability)}.`);
       setConfirmError(true);
       return;
@@ -145,52 +243,37 @@ export default function RequestStonesPage() {
   // Server already filtered + sorted; render the page as-is.
   const filtered = stock;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const homeBranch = cart[0]?.branch || null;
-  const isCrossBranch = Boolean(homeBranch && homeBranch !== branch);
-  const deliveryWorkflow = hasDeliveryWorkflow(isCrossBranch, deliveryRoute);
-
   async function submit(items: CartItem[], clearCartAfter: boolean, source: 'manual' | 'invoice_upload' = 'manual') {
     if (items.length === 0) return;
     setConfirmError(false);
-    if (deliveryRoute === 'customer_dropoff' && (!dropoffCompany.trim() || !dropoffAddress.trim())) {
-      setConfirmMsg('Drop-off requests need a company name and address.');
+    if (!fulfillmentChoice) {
+      setConfirmMsg('Choose how this request should be fulfilled.');
       setConfirmError(true);
       return;
     }
-    const requiresCustomerShipment = deliveryRoute === 'customer_ship';
+    if (deliveryRoute === 'customer_dropoff' && !dropoffAddress.trim()) {
+      setConfirmMsg('Drop-off requests need a complete delivery address.');
+      setConfirmError(true);
+      return;
+    }
     try {
-      const created = await api.submitRequest(
+      await api.submitRequest(
         items.map((c) => ({ barcode: c.barcode, itemType: c.itemType })),
         source,
         {
           requestScope,
-          requestType: requestTypeForFulfillment(deliveryRoute, isCrossBranch),
           dropoffCompany: dropoffCompany.trim(),
           dropoffAddress: dropoffAddress.trim(),
-          deliveryRoute,
-          paperworkType,
+          fulfillmentChoice,
+          ...(fulfillmentChoice === 'bt_to_branch' ? { deliveryBranch } : {}),
         }
       );
-      if (requiresCustomerShipment && shippingLabelFile) {
-        try {
-          await api.uploadShippingLabel(created.id, shippingLabelFile);
-        } catch (labelError) {
-          if (clearCartAfter) setCart([]);
-          setShippingLabelFile(null);
-          setConfirmMsg(`Request #${created.id} was created, but its label did not upload. It is marked Pending label until you add it from My requests.`);
-          setConfirmError(true);
-          await load();
-          return;
-        }
-      }
       setConfirmMsg(`Request for ${items.length} stone${items.length === 1 ? '' : 's'} sent to inventory.`);
       if (clearCartAfter) setCart([]);
-      setShippingLabelFile(null);
-      load();
+      await load();
     } catch (err) {
       setConfirmMsg(err instanceof Error ? err.message : 'Could not send this request.');
       setConfirmError(true);
-      throw err;
     }
   }
 
@@ -198,6 +281,7 @@ export default function RequestStonesPage() {
     const barcodes = extractBarcodes(barcodeEntry);
     setBarcodeMsg('');
     setBarcodeError(false);
+    setLookupRecheckItems([]);
     if (!barcodes.length) {
       setBarcodeMsg('No stock barcode found. Paste the stock details or enter a barcode such as 1509620-132.');
       setBarcodeError(true);
@@ -214,7 +298,15 @@ export default function RequestStonesPage() {
         }
         const exact = exactLoose || exactJewelry;
         if (!exact) return { barcode, error: 'not found' };
-        if (!canRequestAvailability(exact.availability)) return { barcode, error: availabilityText(exact.availability) };
+        const itemType = exactLoose ? 'loose' as const : 'jewelry' as const;
+        if (!canRequestAvailability(exact.availability)
+            && !hasUsableLiveVerification(exact, itemType)) {
+          return {
+            barcode,
+            error: availabilityText(exact.availability),
+            recheckItem: { barcode: exact.barcode, itemType },
+          };
+        }
         const item: CartItem = exactLoose
           ? { barcode: exactLoose.barcode, shape: exactLoose.shape, carat: exactLoose.carat, color: exactLoose.color, clarity: exactLoose.clarity, itemType: 'loose', branch: exactLoose.branch }
           : { barcode: exactJewelry!.barcode, shape: exactJewelry!.item || exactJewelry!.category || 'Jewelry', carat: exactJewelry!.diamond_cts ?? null, color: null, clarity: null, itemType: 'jewelry', branch: exactJewelry!.branch };
@@ -226,6 +318,9 @@ export default function RequestStonesPage() {
       const currentHomeBranch = cart[0]?.branch || lookupAdditions[0]?.branch || null;
       const additions = lookupAdditions.filter((item) => canAddToHomeBranch(currentHomeBranch, item.branch));
       const unavailable = results.filter((result) => result.error).length + (lookupAdditions.length - additions.length);
+      setLookupRecheckItems(
+        results.flatMap((result) => result.recheckItem ? [result.recheckItem] : [])
+      );
       setCart((prev) => {
         const existing = new Set(prev.map((item) => item.barcode));
         return [...prev, ...additions.filter((item) => !existing.has(item.barcode))];
@@ -250,7 +345,6 @@ export default function RequestStonesPage() {
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setExtractWarning('That file isn’t a PDF. Drop an invoice or memo PDF.');
       setExtracted(null);
-      setSentSummary(null);
       setUnavailable([]);
       return;
     }
@@ -258,10 +352,9 @@ export default function RequestStonesPage() {
     setExtractName(file.name);
     setExtractWarning('');
     setExtracted(null);
-    setSentSummary(null);
     setUnavailable([]);
     try {
-      const res = await api.extractInvoice(file, homeBranch || branch);
+      const res = await api.extractInvoice(file);
       if (!res.stones || res.stones.length === 0) {
         setExtractWarning(res.warning || 'No stones could be read from that PDF.');
         return;
@@ -276,7 +369,7 @@ export default function RequestStonesPage() {
       if (available.length === 0) {
         // Nothing in stock — don't send an empty request.
         setExtractWarning(
-          `None of the ${res.stones.length} diamond${res.stones.length === 1 ? '' : 's'} on this PDF ${res.stones.length === 1 ? 'is' : 'are'} available in ${branch} stock.`
+          `None of the ${res.stones.length} item${res.stones.length === 1 ? '' : 's'} on this PDF ${res.stones.length === 1 ? 'is' : 'are'} available in the latest NY, LA, or CH stock snapshot.`
         );
         return;
       }
@@ -296,46 +389,40 @@ export default function RequestStonesPage() {
   }
 
   function extractedReason(s: ExtractedStone) {
-    if (s.available) return 'Available';
-    if (s.reason === 'wrong_branch') return `In ${s.stockBranch} stock, not ${branch}`;
+    if (isExtractedRequestable(s)) return `${s.available ? 'Available' : 'Live ERP: Available'} · ${s.stockBranch || s.branch || 'home branch unknown'}`;
     if (s.availabilityLabel) return s.availabilityLabel;
     if (s.reason === 'on_memo') return 'On Memo';
     if (s.reason === 'on_hold') return 'On Hold';
-    return `Not in ${branch} stock`;
+    if (s.reason === 'not_in_snapshot') return 'Not in latest ERP snapshot';
+    return 'Not in preserved stock';
   }
 
   function extractedColor(s: ExtractedStone) {
-    if (s.available) return ACCENT;
+    if (isExtractedRequestable(s)) return ACCENT;
     if (s.reason === 'on_hold') return RED;
     return AMBER;
   }
 
-  async function sendReviewedExtracted() {
+  function addReviewedToCart(targetBranch: string) {
     if (!extracted) return;
-    const available = extracted.filter((s) => s.available);
-    if (available.length === 0) return;
-    await submit(
-      available.map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch })),
-      false,
-      'invoice_upload'
+    const available = extracted.filter(
+      (stone) => isExtractedRequestable(stone)
+        && (stone.stockBranch || stone.branch) === targetBranch
     );
-    setSentSummary(available);
-    setExtracted(null);
-  }
-
-  function addReviewedToCart() {
-    if (!extracted) return;
-    const available = extracted.filter((s) => s.available);
+    if (cart.length && cart[0].branch !== targetBranch) {
+      setConfirmMsg(`Submit the current ${cart[0].branch} cart before loading the ${targetBranch} group from this PDF.`);
+      setConfirmError(true);
+      return;
+    }
     setCart((prev) => {
       const existing = new Set(prev.map((c) => c.barcode));
       const additions = available
         .filter((s) => !existing.has(s.barcode))
-        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch }))
+        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch, source: 'invoice_upload' as const }))
         .filter((item) => canAddToHomeBranch(prev[0]?.branch || null, item.branch));
       return [...prev, ...additions];
     });
-    setExtracted(null);
-    setConfirmMsg(`${available.length} stone${available.length === 1 ? '' : 's'} added to the request cart for review.`);
+    setConfirmMsg(`${available.length} ${targetBranch} item${available.length === 1 ? '' : 's'} added. Choose the ${targetBranch === branch ? 'local' : 'BT'} fulfillment option, then submit.`);
     setConfirmError(false);
   }
 
@@ -388,7 +475,6 @@ export default function RequestStonesPage() {
             <div style={{ font: "700 18px 'Inter'", color: t.text }}>Request stones · {branch}</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input ref={fileRef} type="file" accept="application/pdf" onChange={onInvoiceInput} style={{ display: 'none' }} />
-              <input ref={shippingLabelInputRef} type="file" accept="application/pdf,image/png,image/jpeg" onChange={(event) => setShippingLabelFile(event.target.files?.[0] || null)} style={{ display: 'none' }} />
               <button onClick={() => fileRef.current?.click()} style={{ padding: '9px 15px', borderRadius: 8, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, font: "600 12px 'Inter'", cursor: 'pointer' }}>
                 Upload invoice
               </button>
@@ -425,14 +511,17 @@ export default function RequestStonesPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
                 <div>
                   <div style={{ font: "600 12.5px 'Inter'", color: t.text }}>Review {extracted.length} extracted stone{extracted.length === 1 ? '' : 's'} from {extractName}</div>
-                  <div style={{ font: "400 11px 'Inter'", color: t.textFaint, marginTop: 2 }}>{extracted.filter((s) => s.available).length} available to send</div>
+                  <div style={{ font: "400 11px 'Inter'", color: t.textFaint, marginTop: 2 }}>
+                    {extracted.filter((stone) => isExtractedRequestable(stone)).length} available across {extractedBranches.length} home branch{extractedBranches.length === 1 ? '' : 'es'}
+                  </div>
                 </div>
                 <div onClick={() => setExtracted(null)} style={{ cursor: 'pointer', color: t.textFaint, font: "600 15px 'Inter'", padding: '0 4px' }}>×</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
                 {extracted.map((s) => (
-                  <div key={s.barcode} style={{ display: 'grid', gridTemplateColumns: '110px 70px 55px 50px 60px minmax(0,1fr)', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
+                  <div key={s.barcode} style={{ display: 'grid', gridTemplateColumns: '110px 42px 70px 55px 50px 60px minmax(0,1fr)', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
                     <span style={{ color: t.text }}>{s.barcode}</span>
+                    <span style={{ font: "800 10px 'Inter'", color: t.textMuted }}>{s.stockBranch || s.branch || '—'}</span>
                     <span>{s.shape || '—'}</span>
                     <span>{fmtCarat(s.carat)}</span>
                     <span>{s.color || '—'}</span>
@@ -442,48 +531,39 @@ export default function RequestStonesPage() {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button onClick={addReviewedToCart} disabled={extracted.every((s) => !s.available)} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${t.border}`, background: 'transparent', color: extracted.every((s) => !s.available) ? t.textFaint : t.text, font: "600 12px 'Inter'", cursor: extracted.every((s) => !s.available) ? 'default' : 'pointer' }}>Add available to cart</button>
-                <button onClick={sendReviewedExtracted} disabled={extracted.every((s) => !s.available)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: extracted.every((s) => !s.available) ? t.chipBg : ACCENT, color: extracted.every((s) => !s.available) ? t.textFaint : '#0a0e0d', font: "600 12px 'Inter'", cursor: extracted.every((s) => !s.available) ? 'default' : 'pointer' }}>Send available to inventory</button>
+                {extractedBranches.map((invoiceBranch) => {
+                  const count = extracted.filter((stone) => isExtractedRequestable(stone) && (stone.stockBranch || stone.branch) === invoiceBranch).length;
+                  return (
+                    <button key={invoiceBranch} onClick={() => addReviewedToCart(invoiceBranch)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 12px 'Inter'", cursor: 'pointer' }}>
+                      Load {count} from {invoiceBranch} into cart
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {unavailable.length > 0 && !extracting && (
+          {unavailableNow.length > 0 && !extracting && (
             <div style={{ padding: 14, background: 'oklch(70% 0.17 30 / 0.1)', border: '1px solid oklch(70% 0.17 30 / 0.34)', borderRadius: 10, marginBottom: 14 }}>
               <div style={{ font: "600 12.5px 'Inter'", color: RED, marginBottom: 8 }}>
-                ⚠ {unavailable.length} diamond{unavailable.length === 1 ? '' : 's'} not available — not sent
+                ⚠ {unavailableNow.length} item{unavailableNow.length === 1 ? '' : 's'} not available — not sent
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {unavailable.map((s) => (
+                {unavailableNow.map((s) => (
                   <div key={s.barcode} style={{ display: 'flex', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
                     <span style={{ color: t.text, minWidth: 110 }}>{s.barcode}</span>
                     <span style={{ font: "500 10.5px 'Inter'", color: RED }}>
                       {extractedReason(s)}
                     </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Sent summary — what the rep reviewed and sent */}
-          {sentSummary && sentSummary.length > 0 && !extracting && (
-            <div style={{ padding: 14, background: 'oklch(78% 0.13 240 / 0.1)', border: '1px solid oklch(78% 0.13 240 / 0.32)', borderRadius: 10, marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ font: "600 12.5px 'Inter'", color: ACCENT }}>
-                  ✓ Sent {sentSummary.length} sorted stone{sentSummary.length === 1 ? '' : 's'} to inventory from {extractName}
-                </div>
-                <div onClick={() => setSentSummary(null)} style={{ cursor: 'pointer', color: t.textFaint, font: "600 15px 'Inter'", padding: '0 4px' }}>×</div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {sentSummary.map((s) => (
-                  <div key={s.barcode} style={{ display: 'flex', gap: 12, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
-                    <span style={{ color: t.text, minWidth: 110 }}>{s.barcode}</span>
-                    <span>{s.shape || '—'}</span>
-                    <span>{fmtCarat(s.carat)}ct</span>
-                    <span>{s.color || '—'}</span>
-                    <span>{s.clarity || '—'}</span>
-                    {s.source === 'invoice' && <span style={{ font: "600 9.5px 'Inter'", color: AMBER }}>from invoice · not in stock</span>}
+                    {['on_hold', 'on_memo', 'in_transit', 'not_in_snapshot'].includes(s.reason || '') && (
+                      latestRecheck(s.barcode, s.item_type)?.state === 'pending'
+                        ? <span style={{ font: "700 9.5px 'Inter'", color: AMBER }}>Live recheck pending at {s.stockBranch}</span>
+                        : (
+                          <button onClick={(event) => requestLiveRecheck(event, s, s.item_type)} style={{ padding: '4px 7px', borderRadius: 5, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: ACCENT, font: "700 9.5px 'Inter'", cursor: 'pointer' }}>
+                            Ask {s.stockBranch} to recheck ERP
+                          </button>
+                        )
+                    )}
                   </div>
                 ))}
               </div>
@@ -499,6 +579,24 @@ export default function RequestStonesPage() {
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', minWidth: 0, flex: 1, padding: '1px 0' }}>{cart.length === 0 ? <span style={{ font: "500 11px 'Inter'", color: t.textFaint }}>Select stones from the table.</span> : sortStonesClient(cart).map((c) => <div key={c.barcode} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', whiteSpace: 'nowrap', background: t.chipBg, border: `1px solid ${t.borderLight}`, borderRadius: 6 }}><span style={{ font: "700 10.5px Arial, sans-serif", color: t.text }}>{c.barcode}</span><button onClick={() => setCart((p) => p.filter((x) => x.barcode !== c.barcode))} aria-label={`Remove ${c.barcode}`} style={{ cursor: 'pointer', color: t.textFaint, font: "700 14px 'Inter'", padding: 0, background: 'transparent', border: 'none' }}>x</button></div>)}</div>
         </div>
         {barcodeMsg && <div style={{ margin: '0 26px 8px', font: "500 10.5px 'Inter'", color: barcodeError ? RED : ACCENT }}>{barcodeMsg}</div>}
+        {lookupRecheckItems.length > 0 && (
+          <div style={{ margin: '0 26px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {lookupRecheckItems.map((item) => {
+              const recheck = latestRecheck(item.barcode, item.itemType);
+              const pending = recheck?.state === 'pending';
+              return (
+                <button
+                  key={`${item.itemType}:${item.barcode}`}
+                  onClick={(event) => requestLiveRecheck(event, item, item.itemType)}
+                  disabled={pending || recheckBusy === item.barcode}
+                  style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: pending ? AMBER : t.text, font: "700 10.5px 'Inter'", cursor: pending ? 'default' : 'pointer' }}
+                >
+                  {pending ? `${item.barcode}: waiting for ${recheck.homeBranch}` : `Ask home branch to recheck ${item.barcode}`}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* The stock table uses the full main pane; filters live below the left navigation. */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', paddingBottom: 26 }}>
@@ -517,8 +615,12 @@ export default function RequestStonesPage() {
                 const av = s.availability;
                 const avText = availabilityText(av);
                 const avColor = availabilityColor(av);
+                const recheck = latestRecheck(s.barcode, 'loose');
+                const liveAvailable = hasUsableLiveVerification(s, 'loose');
+                const canRecheck = ['on_hold', 'on_memo', 'in_transit', 'not_in_snapshot']
+                  .includes(av.status);
                 return (
-                  <div key={s.barcode} onClick={() => toggleCart(s)} style={{ display: 'grid', gridTemplateColumns: STOCK_TABLE_COLUMNS, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}`, cursor: 'pointer', background: selected ? 'oklch(78% 0.13 240 / 0.08)' : 'transparent' }}>
+                  <div key={s.barcode} onClick={() => toggleCart(s)} style={{ display: 'grid', gridTemplateColumns: STOCK_TABLE_COLUMNS, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}`, cursor: canRequestAvailability(av) || liveAvailable ? 'pointer' : 'default', background: selected ? 'oklch(78% 0.13 240 / 0.08)' : 'transparent' }}>
                     <Check checked={selected} onClick={() => toggleCart(s)} size={17} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</div>
@@ -530,7 +632,24 @@ export default function RequestStonesPage() {
                     <div style={{ font: "600 11px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(s.length_mm, s.width_mm, s.height_mm, s.lw_ratio)}</div>
                     <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{s.color || '—'}</div>
                     <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{s.clarity || '—'}</div>
-                    <div style={{ font: "600 10.5px 'Inter'", color: avColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{avText}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ font: "600 10.5px 'Inter'", color: liveAvailable ? ACCENT : avColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {liveAvailable ? 'Live ERP: Available' : avText}
+                      </div>
+                      {canRecheck && !liveAvailable && (
+                        recheck?.state === 'pending'
+                          ? <div style={{ font: "700 9px 'Inter'", color: AMBER, marginTop: 3 }}>Recheck pending at {recheck.homeBranch}</div>
+                          : (
+                            <button
+                              onClick={(event) => requestLiveRecheck(event, s, 'loose')}
+                              disabled={recheckBusy === s.barcode}
+                              style={{ marginTop: 3, padding: 0, border: 'none', background: 'transparent', color: ACCENT, font: "700 9px 'Inter'", cursor: 'pointer', textAlign: 'left' }}
+                            >
+                              {recheckBusy === s.barcode ? 'Sending…' : 'Ask home branch to recheck ERP'}
+                            </button>
+                          )
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -603,21 +722,33 @@ export default function RequestStonesPage() {
               : 'Add a stone and its home branch will be detected automatically.'}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 12 }}>
-            {(['internal_transfer', 'customer_ship', 'customer_dropoff'] as DeliveryRoute[]).map((value) => (
+            {fulfillmentChoicesFor(homeBranch, branch).map((value) => (
               <button
                 key={value}
                 onClick={() => {
-                  setDeliveryRoute(value);
-                  setShippingLabelFile(null);
-                  if (value === 'customer_ship' && paperworkType === 'none') setPaperworkType('pending');
-                  if (value !== 'customer_ship') setPaperworkType('none');
+                  setFulfillmentChoice(value);
                 }}
-                style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${deliveryRoute === value ? ACCENT : t.borderLight}`, background: deliveryRoute === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryRoute === value ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}
+                style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${fulfillmentChoice === value ? ACCENT : t.borderLight}`, background: fulfillmentChoice === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: fulfillmentChoice === value ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}
               >
-                {fulfillmentLabel(value, branch, homeBranch)}
+                {fulfillmentChoiceLabel(value, branch)}
               </button>
             ))}
           </div>
+          {fulfillmentChoice === 'bt_to_branch' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5, margin: '-5px 0 12px' }}>
+              {(['NY', 'LA', 'CH'] as const)
+                .filter((candidate) => candidate !== homeBranch)
+                .map((candidate) => (
+                  <button
+                    key={candidate}
+                    onClick={() => setDeliveryBranch(candidate)}
+                    style={{ padding: '7px 4px', borderRadius: 6, border: `1px solid ${deliveryBranch === candidate ? ACCENT : t.borderLight}`, background: deliveryBranch === candidate ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryBranch === candidate ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer' }}
+                  >
+                    {candidate}
+                  </button>
+                ))}
+            </div>
+          )}
           {deliveryWorkflow && (
             <div style={{ padding: 9, marginBottom: 12, background: 'oklch(70% 0.13 70 / 0.10)', border: '1px solid oklch(70% 0.13 70 / 0.28)', borderRadius: 8 }}>
               {isCrossBranch && <>
@@ -625,11 +756,12 @@ export default function RequestStonesPage() {
                 <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 5 }}>{homeBranch} inventory will be notified to enter the branch transfer in Maitri ERP before packing.</div>
               </>}
               {deliveryRoute === 'customer_ship' && <>
-              <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, margin: '10px 0 6px' }}>PAPERWORK</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
-                {['none', 'invoice', 'memo'].map((value) => <button key={value} onClick={() => setPaperworkType(value as PaperworkType)} style={{ padding: '6px 4px', borderRadius: 6, border: `1px solid ${paperworkType === value ? ACCENT : t.borderLight}`, background: paperworkType === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: paperworkType === value ? ACCENT : t.textMuted, font: "600 10px 'Inter'", cursor: 'pointer' }}>{value === 'none' ? 'No paperwork' : value[0].toUpperCase() + value.slice(1)}</button>)}
-              </div>
-              <div style={{ marginTop: 9 }}><button onClick={() => shippingLabelInputRef.current?.click()} style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: `1px solid ${shippingLabelFile ? ACCENT : t.borderLight}`, background: shippingLabelFile ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: shippingLabelFile ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer', textAlign: 'left' }}>{shippingLabelFile ? `Label ready: ${shippingLabelFile.name}` : 'Attach shipping label now (optional)'}</button><div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 6 }}>You can submit now. Pending paperwork and label tags remain until both are added; inventory cannot ship to the customer before then.</div></div>
+                <div style={{ font: "800 10.5px 'Inter'", color: AMBER, marginTop: 10 }}>DOCUMENTS ARE ADDED LATER</div>
+                <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 5 }}>
+                  {isCrossBranch
+                    ? 'After ERP BT receipt, open My requests and upload step 1: invoice/memo paperwork, then step 2: the shipping label.'
+                    : 'Open My requests and upload step 1: invoice/memo paperwork, then step 2: the shipping label.'}
+                </div>
               </>}
             </div>
           )}
@@ -657,9 +789,15 @@ export default function RequestStonesPage() {
         {confirmMsg && <div style={{ marginTop: 12, font: "500 11.5px 'Inter'", color: confirmError ? RED : ACCENT }}>{confirmMsg}</div>}
 
         <button
-          onClick={() => submit(cart, true)}
-          disabled={cart.length === 0}
-          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length ? ACCENT : t.chipBg, color: cart.length ? '#0a0e0d' : t.textFaint, font: "600 13px 'Inter'", cursor: cart.length ? 'pointer' : 'default' }}
+          onClick={() => submit(
+            cart,
+            true,
+            cart.some((item) => item.source === 'invoice_upload')
+              ? 'invoice_upload'
+              : 'manual'
+          )}
+          disabled={cart.length === 0 || !fulfillmentChoice}
+          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length && fulfillmentChoice ? ACCENT : t.chipBg, color: cart.length && fulfillmentChoice ? '#0a0e0d' : t.textFaint, font: "600 13px 'Inter'", cursor: cart.length && fulfillmentChoice ? 'pointer' : 'default' }}
         >
           Submit request to inventory
         </button>

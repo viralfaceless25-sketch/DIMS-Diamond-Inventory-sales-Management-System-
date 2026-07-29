@@ -76,3 +76,48 @@ test('cancelled requests cannot be mutated by any inventory branch', () => {
     actorBranch: 'NY',
   }), /cancelled request/);
 });
+
+test('destination inventory can record a return after handoff without reopening fulfillment', () => {
+  const handed = {
+    status: 'fulfilled',
+    cross_branch: true,
+    fulfillment_branch: 'LA',
+    delivery_branch: 'NY',
+    delivery_route: 'internal_transfer',
+    transfer_status: 'handed_to_rep',
+  };
+  assert.doesNotThrow(() => assertInventoryRequestMutation({
+    request: handed,
+    actorBranch: 'NY',
+    mutationField: 'returned',
+  }));
+  assert.throws(() => assertInventoryRequestMutation({
+    request: handed,
+    actorBranch: 'NY',
+    mutationField: 'stone_found',
+  }), /ready for the sales rep/);
+  assert.throws(() => assertInventoryRequestMutation({
+    request: { ...handed, status: 'half_fulfilled' },
+    actorBranch: 'NY',
+    mutationField: 'returned',
+  }), /completed request/);
+});
+
+test('local inventory can record a return only after the request is fulfilled', () => {
+  const localRequest = {
+    status: 'fulfilled',
+    cross_branch: false,
+    fulfillment_branch: 'NY',
+    branch: 'NY',
+  };
+  assert.doesNotThrow(() => assertInventoryRequestMutation({
+    request: localRequest,
+    actorBranch: 'NY',
+    mutationField: 'returned',
+  }));
+  assert.throws(() => assertInventoryRequestMutation({
+    request: { ...localRequest, status: 'half_fulfilled' },
+    actorBranch: 'NY',
+    mutationField: 'returned',
+  }), /completed request/);
+});

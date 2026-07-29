@@ -52,6 +52,7 @@ export const STATUS_LABELS: Record<string, string> = {
   awaiting: 'Awaiting',
   half_fulfilled: 'Half fulfilled',
   fulfilled: 'Fulfilled',
+  cancelled: 'Cancelled',
 };
 
 export const TRACKING_LABELS: Record<string, string> = {

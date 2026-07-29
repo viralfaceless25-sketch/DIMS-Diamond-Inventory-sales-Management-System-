@@ -16,6 +16,18 @@ const CUSTOMER_DROPOFF_STEPS = {
   packed: { dropoff_customer: 'dropped_off_to_customer' },
 };
 
+const FINAL_TRANSFER_STATUSES = new Set([
+  'handed_to_rep',
+  'shipped_to_customer',
+  'dropped_off_to_customer',
+]);
+
+function requestStatusAfterTransfer(currentStatus, nextTransferStatus) {
+  return FINAL_TRANSFER_STATUSES.has(nextTransferStatus)
+    ? 'fulfilled'
+    : currentStatus;
+}
+
 function getTransferAction({
   route,
   status,
@@ -75,4 +87,8 @@ function isCrossBranchRoute(route) {
   return ['internal_transfer', 'customer_ship', 'customer_dropoff'].includes(route);
 }
 
-module.exports = { getTransferAction, isCrossBranchRoute };
+module.exports = {
+  getTransferAction,
+  isCrossBranchRoute,
+  requestStatusAfterTransfer,
+};

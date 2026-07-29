@@ -6,7 +6,7 @@ import { api, TrackingRow } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '../repContext';
-import { ACCENT, AMBER, BLUE } from '@/lib/theme';
+import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -36,9 +36,14 @@ export default function RepTrackingPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await api.tracking('ALL', search, 1);
-    setRows(result.rows);
-    setLoading(false);
+    try {
+      const result = await api.tracking('ALL', search, 1);
+      setRows(result.rows);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not load your stone tracking.');
+    } finally {
+      setLoading(false);
+    }
   }, [search]);
 
   useEffect(() => { load(); }, [load]);
@@ -79,7 +84,12 @@ export default function RepTrackingPage() {
                     <div style={{ font: "500 9.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>{row.cert_no || 'No certificate number'}</div>
                   </div>
                   <div style={{ font: "700 10.5px 'Inter'", color: t.textMuted }}>{row.fulfillment_branch || row.branch} → {row.delivery_branch || row.branch}</div>
-                  <div style={{ font: "700 10.5px 'Inter'", color: STATUS_COLOR[row.trackingStatus] }}>{TRACKING_LABELS[row.trackingStatus]}</div>
+                  <div>
+                    <div style={{ font: "700 10.5px 'Inter'", color: row.request_status === 'cancelled' ? RED : STATUS_COLOR[row.trackingStatus] }}>
+                      {row.request_status === 'cancelled' ? 'Request cancelled' : TRACKING_LABELS[row.trackingStatus]}
+                    </div>
+                    <div style={{ marginTop: 3, font: "600 9px 'Inter'", color: t.textFaint }}>{row.currentStockStatusLabel}</div>
+                  </div>
                   <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>{latest?.movementLabel || 'Requested'}</div>
                   <Link href="/rep/my-requests" onClick={(event) => event.stopPropagation()} style={{ color: ACCENT, font: "700 10.5px 'Inter'", textDecoration: 'none' }}>Request #{row.request_id}</Link>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2" style={{ transform: expanded ? 'rotate(180deg)' : 'none' }}><path d="M6 9l6 6 6-6" /></svg>
@@ -87,6 +97,27 @@ export default function RepTrackingPage() {
 
                 {expanded && (
                   <div style={{ borderTop: `1px solid ${t.border}`, background: t.bgSide, padding: '12px 15px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px,1fr))', gap: 8, marginBottom: 12 }}>
+                      <div style={{ padding: 9, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 7 }}>
+                        <div style={{ font: "800 9px 'Inter'", color: t.textFaint }}>MORNING EXCEL SNAPSHOT</div>
+                        <div style={{ marginTop: 4, font: "700 10.5px 'Inter'", color: row.snapshot.active ? t.text : AMBER }}>
+                          {row.snapshot.active ? `${row.snapshot.branch || 'Unknown'} · ${row.currentStockStatusLabel}` : 'Not in latest snapshot'}
+                        </div>
+                      </div>
+                      <div style={{ padding: 9, background: t.bgCard, border: `1px solid ${row.snapshotReconciliation.state === 'mismatch' ? RED : t.border}`, borderRadius: 7 }}>
+                        <div style={{ font: "800 9px 'Inter'", color: t.textFaint }}>RECONCILIATION</div>
+                        <div style={{ marginTop: 4, font: "700 10.5px 'Inter'", color: row.snapshotReconciliation.state === 'mismatch' ? RED : row.snapshotReconciliation.state === 'reconciled' ? GREEN : t.text }}>
+                          {row.snapshotReconciliation.label}
+                        </div>
+                      </div>
+                      <div style={{ padding: 9, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 7 }}>
+                        <div style={{ font: "800 9px 'Inter'", color: t.textFaint }}>CONFIRMED LIVE ERP</div>
+                        <div style={{ marginTop: 4, font: "700 10px 'Inter'", color: row.erp_transfer_confirmed ? GREEN : t.textFaint }}>BT issued: {row.erp_transfer_confirmed ? 'yes' : 'no'}</div>
+                        <div style={{ marginTop: 3, font: "700 10px 'Inter'", color: row.erp_transfer_received ? GREEN : t.textFaint }}>BT received: {row.erp_transfer_received ? 'yes' : 'no'}</div>
+                        {row.liveErpVerification && <div style={{ marginTop: 3, font: "700 9.5px 'Inter'", color: GREEN }}>Availability verified live</div>}
+                        {row.request_status === 'cancelled' && <div style={{ marginTop: 3, font: "700 9.5px 'Inter'", color: RED }}>{row.cancellation_status?.replaceAll('_', ' ') || 'Unavailable'}{row.cancellation_reason ? ` · ${row.cancellation_reason}` : ''}</div>}
+                      </div>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(150px,1fr) 85px 85px 130px', gap: 10, padding: '0 8px 8px', color: t.textFaint, font: "800 9px 'Inter'" }}>
                       <div>DATE</div><div>MOVEMENT</div><div>FROM</div><div>TO</div><div>UPDATED BY</div>
                     </div>

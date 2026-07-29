@@ -80,6 +80,7 @@ test('only the request owner can ask destination inventory to receive ERP BT', (
     sales_rep_id: 17,
     fulfillment_branch: 'LA',
     delivery_branch: 'NY',
+    erp_transfer_confirmed: true,
   };
 
   assert.doesNotThrow(() => assertErpTransferAction({
@@ -96,6 +97,15 @@ test('only the request owner can ask destination inventory to receive ERP BT', (
       action: 'request_receive',
     }),
     /request owner/
+  );
+  assert.throws(
+    () => assertErpTransferAction({
+      request: { ...request, erp_transfer_confirmed: false },
+      actorRole: 'sales_rep',
+      actorSalesRepId: 17,
+      action: 'request_receive',
+    }),
+    /issued in ERP first/
   );
 });
 
