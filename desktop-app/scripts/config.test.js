@@ -9,8 +9,8 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 test('desktop package and installer are versioned for the current release', () => {
   const pkg = JSON.parse(read('package.json'));
   const config = JSON.parse(read('src-tauri/tauri.conf.json'));
-  assert.equal(pkg.version, '1.0.3');
-  assert.equal(config.version, '1.0.3');
+  assert.equal(pkg.version, '1.0.4');
+  assert.equal(config.version, '1.0.4');
   assert.equal(config.productName, 'Diamond Inventory');
   assert.deepEqual(config.bundle.targets, ['nsis']);
 });

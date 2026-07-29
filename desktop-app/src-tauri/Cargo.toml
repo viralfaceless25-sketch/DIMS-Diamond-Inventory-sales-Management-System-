@@ -1,6 +1,6 @@
 [package]
 name = "diamond-inventory"
-version = "1.0.3"
+version = "1.0.4"
 description = "Maitri Diamond Inventory desktop client"
 authors = ["Maitri Diamonds"]
 edition = "2021"
