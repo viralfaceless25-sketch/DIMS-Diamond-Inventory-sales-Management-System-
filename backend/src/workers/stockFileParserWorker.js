@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parentPort, workerData } = require('node:worker_threads');
 const ExcelJS = require('exceljs');
+const unzipper = require('unzipper');
 const { parse } = require('@fast-csv/parse');
 const { createRowMapper } = require('../utils/columnMapping');
 
@@ -47,6 +48,33 @@ async function collectRows(rowIterator) {
 }
 
 async function* xlsxRows(filePath) {
+  // ExcelJS's streaming reader consumes ZIP entries in physical order.
+  // Current Excel writers commonly place xl/workbook.xml last, and the
+  // Parse/async-iterator bridge can intermittently omit that final metadata
+  // entry on newer Node versions. Open the central directory first, then feed
+  // the same low-memory ExcelJS parsers in their required dependency order.
+  const archive = await unzipper.Open.file(filePath);
+  const entries = new Map(
+    archive.files
+      .filter((entry) => entry.type === 'File')
+      .map((entry) => [entry.path.replace(/\\/g, '/').replace(/^\/+/, ''), entry])
+  );
+  const workbookEntry = entries.get('xl/workbook.xml');
+  const relationshipsEntry = entries.get('xl/_rels/workbook.xml.rels');
+  const worksheetEntries = [...entries.entries()]
+    .map(([entryPath, entry]) => {
+      const match = entryPath.match(/^xl\/worksheets\/sheet(\d+)\.xml$/i);
+      return match ? { entry, sheetNo: Number(match[1]) } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.sheetNo - b.sheetNo);
+
+  if (!workbookEntry || !relationshipsEntry || worksheetEntries.length === 0) {
+    const error = new Error('The uploaded XLSX is missing required workbook or worksheet data');
+    error.code = 'INVALID_STOCK_WORKBOOK';
+    throw error;
+  }
+
   const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath, {
     entries: 'emit',
     sharedStrings: 'cache',
@@ -55,11 +83,27 @@ async function* xlsxRows(filePath) {
     worksheets: 'emit',
   });
 
-  for await (const worksheet of workbook) {
-    for await (const row of worksheet) {
-      yield row.values.slice(1);
+  await workbook._parseRels(relationshipsEntry.stream());
+  await workbook._parseWorkbook(workbookEntry.stream());
+  const sharedStringsEntry = entries.get('xl/sharedStrings.xml');
+  if (sharedStringsEntry) {
+    for await (const unused of workbook._parseSharedStrings(sharedStringsEntry.stream())) {
+      void unused;
     }
-    break;
+  }
+
+  const firstWorksheet = worksheetEntries[0];
+  const worksheetEvents = [
+    ...workbook._parseWorksheet(firstWorksheet.entry.stream(), firstWorksheet.sheetNo),
+  ];
+  const worksheet = worksheetEvents.find((event) => event.eventType === 'worksheet')?.value;
+  if (!worksheet) {
+    const error = new Error('The uploaded XLSX does not contain a readable worksheet');
+    error.code = 'INVALID_STOCK_WORKBOOK';
+    throw error;
+  }
+  for await (const row of worksheet) {
+    yield row.values.slice(1);
   }
 }
 
