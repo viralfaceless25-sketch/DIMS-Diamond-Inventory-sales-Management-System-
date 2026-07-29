@@ -16,7 +16,13 @@
 - Every fulfillment choice supports `stone_and_cert`, `stone_only`, and `cert_only`.
 - Source branch is always derived from locked stock rows; client-supplied source data is never trusted.
 - Drop-off address is mandatory; company name is optional.
-- Version-2 customer shipment order is ERP BT when cross-branch, paperwork upload, then shipping-label upload.
+- ERP digital movement and physical movement are separate timelines.
+- Source inventory confirms ERP BT issue; destination inventory independently
+  confirms ERP BT receipt when the rep needs digital availability.
+- Version-2 cross-branch customer shipment order is ERP BT issue, ERP BT
+  receipt, paperwork upload, then shipping-label upload.
+- Daily Excel data is a timestamped snapshot, not live ERP state. Missing rows
+  are archived and blocked instead of deleted or guessed to be In Transit.
 - Existing workflow-version-1 requests remain actionable under their original completion rules.
 - PDF, PNG, and JPEG uploads are limited to 10 MB and validated by signature.
 - Existing installed desktop shells receive hosted web/API changes without reinstalling.
@@ -253,7 +259,217 @@ git commit -m "feat: enforce conditional request routing"
 
 ---
 
-### Task 2: Versioned Paperwork and Label Workflow
+### Task 2: Separate ERP Movement and Preserve Daily Snapshots
+
+**Files:**
+- Modify: `backend/src/db/schema.sql`
+- Create: `backend/src/services/erpTransferService.js`
+- Create: `backend/src/services/stockSnapshotService.js`
+- Modify: `backend/src/services/requestStockService.js`
+- Modify: `backend/src/services/transferService.js`
+- Modify: `backend/src/routes/transfers.js`
+- Modify: `backend/src/routes/stock.js`
+- Modify: `backend/src/routes/requests.js`
+- Modify: `backend/src/routes/tracking.js`
+- Create: `backend/test/erpTransferService.test.js`
+- Create: `backend/test/stockSnapshotService.test.js`
+- Modify: `backend/test/requestStockService.test.js`
+- Modify: `backend/test/transferService.test.js`
+
+**Interfaces:**
+- Produces: `assertErpTransferAction({ request, actorBranch, actorRole, action })`
+- Produces: `deriveSnapshotReconciliation({ request, stock })`
+- Produces: `archiveBranchSnapshot(client, table, branch)`
+- Produces: `POST /api/transfers/:id/request-erp-receive`
+- Produces: `POST /api/transfers/:id/erp-received`
+- Reinterprets: existing `erp_transfer_confirmed` as ERP BT issued
+- Adds: ERP BT received and receive-request actor/timestamp fields
+- Adds: stock snapshot active/last-seen/missing-since fields
+
+- [ ] **Step 1: Add failing ERP timeline tests**
+
+Create `erpTransferService.test.js` with literal business rules:
+
+```js
+test('only source inventory can confirm ERP BT issue', () => {
+  assert.doesNotThrow(() => assertErpTransferAction({
+    request: { cross_branch: true, fulfillment_branch: 'LA', delivery_branch: 'NY' },
+    actorRole: 'inventory',
+    actorBranch: 'LA',
+    action: 'issue',
+  }));
+  assert.throws(() => assertErpTransferAction({
+    request: { cross_branch: true, fulfillment_branch: 'LA', delivery_branch: 'NY' },
+    actorRole: 'inventory',
+    actorBranch: 'NY',
+    action: 'issue',
+  }), /Only LA inventory/);
+});
+
+test('destination receipt is digital, independent of physical arrival', () => {
+  assert.doesNotThrow(() => assertErpTransferAction({
+    request: {
+      cross_branch: true,
+      fulfillment_branch: 'LA',
+      delivery_branch: 'NY',
+      erp_transfer_confirmed: true,
+      transfer_status: 'packed',
+    },
+    actorRole: 'inventory',
+    actorBranch: 'NY',
+    action: 'receive',
+  }));
+});
+
+test('ERP BT receipt cannot precede issue', () => {
+  assert.throws(() => assertErpTransferAction({
+    request: {
+      cross_branch: true,
+      fulfillment_branch: 'LA',
+      delivery_branch: 'NY',
+      erp_transfer_confirmed: false,
+    },
+    actorRole: 'inventory',
+    actorBranch: 'NY',
+    action: 'receive',
+  }), /issued in ERP first/);
+});
+```
+
+Extend `transferService.test.js` to prove office packing/shipping requires source
+BT issue but never destination BT receipt.
+
+- [ ] **Step 2: Add failing snapshot preservation tests**
+
+Create `stockSnapshotService.test.js`:
+
+```js
+test('branch replacement archives missing rows instead of deleting them', async () => {
+  const calls = [];
+  await archiveBranchSnapshot({
+    query: async (sql, params) => calls.push({ sql, params }),
+  }, 'loose_diamonds', 'LA');
+  assert.match(calls[0].sql, /UPDATE loose_diamonds/);
+  assert.match(calls[0].sql, /snapshot_active = false/);
+  assert.doesNotMatch(calls[0].sql, /DELETE/);
+});
+
+test('a missing snapshot does not invent an ERP in-transit event', () => {
+  assert.deepEqual(deriveSnapshotReconciliation({
+    request: { crossBranch: true, erpTransferIssuedAt: null },
+    stock: { snapshotActive: false },
+  }), {
+    state: 'missing',
+    label: 'Not in latest ERP snapshot',
+  });
+});
+```
+
+Extend `requestStockService.test.js` so a locked
+`snapshot_active: false` row is blocked with `Not in latest ERP snapshot`.
+
+- [ ] **Step 3: Run the focused tests and confirm RED**
+
+Run:
+
+```powershell
+node --test test/erpTransferService.test.js test/stockSnapshotService.test.js test/requestStockService.test.js test/transferService.test.js
+```
+
+Expected: missing services/columns and current physical/ERP status coupling.
+
+- [ ] **Step 4: Add the additive ERP and snapshot schema**
+
+Add idempotent request fields:
+
+```sql
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_by INTEGER REFERENCES users(id);
+```
+
+Add to both stock tables:
+
+```sql
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS snapshot_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS snapshot_missing_since TIMESTAMPTZ;
+```
+
+Repeat for `jewelry_pieces` and add active/branch indexes. Do not rewrite
+existing ERP issue confirmations.
+
+- [ ] **Step 5: Implement ERP issue, receive request, and receipt rules**
+
+Keep `POST /:id/erp-transfer` as the source issue action but rename all response
+labels and movements to **ERP BT issued**. Add:
+
+- request-owner `POST /:id/request-erp-receive`;
+- destination-inventory `POST /:id/erp-received`.
+
+Receipt requires issue first but does not inspect `transfer_status`; physical
+arrival is deliberately irrelevant. Customer-direct routes appear in the
+destination receipt queue automatically after issue. Office-route receive
+requests add urgency/notification but do not become a hard prerequisite, so
+inventory can still record an ERP action initiated outside this app.
+
+Return issued, requested, and received actor/timestamps in all request APIs.
+
+- [ ] **Step 6: Archive and reactivate stock snapshots**
+
+Replace per-branch `DELETE` in the upload transaction with
+`archiveBranchSnapshot`. Every upsert explicitly sets:
+
+```sql
+snapshot_active = true,
+last_seen_at = now(),
+snapshot_missing_since = NULL
+```
+
+Stock list/count/filter APIs add `snapshot_active = true`. Locked request stock
+selects the snapshot fields and refuses inactive rows. The upload response
+reports how many prior rows became inactive.
+
+Do not change manual ERP or physical request events during import.
+
+- [ ] **Step 7: Expose snapshot reconciliation without guessing**
+
+Request/tracking queries return last snapshot branch, status, active flag,
+last-seen time, and missing-since time. `deriveSnapshotReconciliation` returns:
+
+- `stale` when the latest snapshot predates the manual ERP event;
+- `reconciled` when a newer snapshot agrees with issued/received state;
+- `mismatch` when a newer snapshot contradicts it;
+- `missing` when no manual event justifies an operational interpretation.
+
+Operational cards use manual ERP events for the live timeline and display the
+snapshot result separately.
+
+- [ ] **Step 8: Run backend tests and commit**
+
+Run:
+
+```powershell
+npm test
+node --check src/routes/stock.js
+node --check src/routes/transfers.js
+node --check src/routes/requests.js
+```
+
+Expected: all tests and syntax checks pass.
+
+Commit:
+
+```powershell
+git add backend/src/db/schema.sql backend/src/services/erpTransferService.js backend/src/services/stockSnapshotService.js backend/src/services/requestStockService.js backend/src/services/transferService.js backend/src/routes/transfers.js backend/src/routes/stock.js backend/src/routes/requests.js backend/src/routes/tracking.js backend/test/erpTransferService.test.js backend/test/stockSnapshotService.test.js backend/test/requestStockService.test.js backend/test/transferService.test.js
+git commit -m "feat: separate ERP and physical movement"
+```
+
+---
+
+### Task 3: Versioned Paperwork and Label Workflow
 
 **Files:**
 - Modify: `backend/src/db/schema.sql`
@@ -308,6 +524,8 @@ test('workflow version 2 customer shipment requires paperwork and label', () => 
     action: 'ship_customer',
     paperworkType: 'invoice',
     workflowVersion: 2,
+    crossBranch: true,
+    erpTransferReceived: true,
   };
   assert.throws(() => getTransferAction({
     ...base,
@@ -382,9 +600,10 @@ paperwork.
 Extend `getTransferAction` with `hasPaperwork` and `workflowVersion`. For
 `customer_ship` plus `ship_customer`, require:
 
-1. paperwork decision is not pending;
-2. workflow version 2 has a stored paperwork file;
-3. a stored label exists.
+1. destination ERP BT receipt for a cross-branch workflow-version-2 request;
+2. paperwork decision is not pending;
+3. workflow version 2 has a stored paperwork file;
+4. a stored label exists.
 
 - [ ] **Step 5: Implement paperwork upload/download and ordered label upload**
 
@@ -397,7 +616,7 @@ paperworkType=invoice|memo
 ```
 
 Require request ownership, customer-shipment route, editable transfer state,
-and ERP BT confirmation when cross-branch. Upsert the file and update
+and destination ERP BT receipt when cross-branch. Upsert the file and update
 `requests.paperwork_type` atomically.
 
 For workflow version 2, `POST /:id/shipping-label` requires `has_paperwork`.
@@ -454,7 +673,7 @@ git commit -m "feat: add ordered paperwork workflow"
 
 ---
 
-### Task 3: Conditional Sales-Rep Request Panel and Cross-Branch Invoice Review
+### Task 4: Conditional Sales-Rep Request Panel and Cross-Branch Invoice Review
 
 **Files:**
 - Modify: `frontend/src/lib/requestWorkflow.ts`
@@ -469,7 +688,7 @@ git commit -m "feat: add ordered paperwork workflow"
 - Produces: `fulfillmentChoices(repBranch, homeBranch)`
 - Produces: `defaultFulfillmentChoice(repBranch, homeBranch)`
 - Produces: `needsDropoffAddress(choice)` and `needsCustomerDocuments(choice)`
-- Consumes: Task 1 request contract and Task 2 API types
+- Consumes: Task 1 request contract and Task 2-3 API types
 
 - [ ] **Step 1: Add failing pure frontend workflow tests**
 
@@ -589,7 +808,7 @@ git commit -m "feat: show conditional local and BT choices"
 
 ---
 
-### Task 4: My Requests and Inventory Document Actions
+### Task 5: My Requests and Inventory Document Actions
 
 **Files:**
 - Modify: `frontend/src/app/rep/my-requests/page.tsx`
@@ -598,7 +817,8 @@ git commit -m "feat: show conditional local and BT choices"
 - Modify: `frontend/scripts/request-actions.test.js`
 
 **Interfaces:**
-- Consumes: `workflowVersion`, `hasPaperwork`, `hasLabel`, `paperworkType`, and document URLs from Task 2
+- Consumes: ERP timeline state from Task 2 plus `workflowVersion`,
+  `hasPaperwork`, `hasLabel`, `paperworkType`, and document URLs from Task 3
 - Produces: visible two-step document completion in My Requests
 - Produces: source-inventory Open paperwork/Open shipping label actions
 
@@ -611,7 +831,7 @@ test('version 2 document steps unlock in order', () => {
   assert.deepEqual(documentStepState({
     workflowVersion: 2,
     crossBranch: true,
-    erpTransferConfirmed: false,
+    erpTransferReceived: false,
     hasPaperwork: false,
     hasLabel: false,
   }), {
@@ -622,7 +842,7 @@ test('version 2 document steps unlock in order', () => {
   assert.deepEqual(documentStepState({
     workflowVersion: 2,
     crossBranch: true,
-    erpTransferConfirmed: true,
+    erpTransferReceived: true,
     hasPaperwork: true,
     hasLabel: false,
   }), {
@@ -649,7 +869,10 @@ Expected: missing `documentStepState`, `uploadPaperwork`, and paperwork-open UI.
 For each customer shipment:
 
 - show Step 1 with Upload invoice and Upload memo;
-- disable Step 1 for cross-branch version 2 until ERP BT confirmation;
+- disable Step 1 for cross-branch version 2 until destination ERP BT receipt;
+- show source ERP BT issued, destination ERP BT received, and physical movement
+  as separate status rows;
+- allow the rep to request destination ERP BT receipt for an office transfer;
 - display/open the current paperwork when present;
 - show Step 2 Upload shipping label;
 - disable Step 2 for version 2 until paperwork exists;
@@ -670,7 +893,10 @@ In the inventory request page:
 - hide/disable Ship to customer until `documentStepState(...).ready`;
 - keep the backend as final authority;
 - display the complete drop-off address;
-- retain Copy barcode and ERP confirmation.
+- retain Copy barcode;
+- give source inventory only the ERP BT issued action;
+- give destination inventory only the ERP BT received action;
+- show physical actions independently from ERP receipt.
 
 - [ ] **Step 5: Run tests/build and commit**
 
@@ -692,7 +918,7 @@ git commit -m "feat: add request document steps"
 
 ---
 
-### Task 5: Remove the Excel Upload Dependency Advisory
+### Task 6: Remove the Excel Upload Dependency Advisory
 
 **Files:**
 - Modify: `backend/package.json`
@@ -767,7 +993,7 @@ git commit -m "fix: patch stock upload dependency chain"
 
 ---
 
-### Task 6: Build and Publish Desktop Release 1.0.4
+### Task 7: Build and Publish Desktop Release 1.0.4
 
 **Files:**
 - Modify: `desktop-app/package.json`
@@ -853,10 +1079,10 @@ git commit -m "release: publish Diamond Inventory 1.0.4"
 
 ---
 
-### Task 7: Full Verification, Merge, Deployment, and Live Smoke Test
+### Task 8: Full Verification, Merge, Deployment, and Live Smoke Test
 
 **Files:**
-- Verify: all tracked changes from Tasks 1-6
+- Verify: all tracked changes from Tasks 1-7
 - Modify only if a verification failure receives its own failing regression test
 
 **Interfaces:**
