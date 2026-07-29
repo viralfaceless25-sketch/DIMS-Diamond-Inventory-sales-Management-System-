@@ -268,3 +268,36 @@ CREATE INDEX IF NOT EXISTS idx_stone_movements_barcode ON stone_movements(barcod
 CREATE INDEX IF NOT EXISTS idx_stone_movements_request ON stone_movements(request_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stone_movements_rep ON stone_movements(sales_rep_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stone_movements_created_at ON stone_movements(created_at DESC);
+
+-- Physical stone/certificate arrivals are independent from source request
+-- resolution and from the digital Maitri ERP branch-transfer state.
+CREATE TABLE IF NOT EXISTS shipment_receipts (
+  id                 BIGSERIAL PRIMARY KEY,
+  receiving_branch   TEXT NOT NULL REFERENCES branches(id),
+  source_branch      TEXT NOT NULL REFERENCES branches(id),
+  request_id         INTEGER REFERENCES requests(id) ON DELETE SET NULL,
+  request_stone_id   INTEGER REFERENCES request_stones(id) ON DELETE SET NULL,
+  barcode            TEXT NOT NULL,
+  stone_received     BOOLEAN NOT NULL,
+  cert_received      BOOLEAN NOT NULL,
+  match_state        TEXT NOT NULL CHECK (match_state IN ('matched', 'unmatched')),
+  received_on        DATE NOT NULL,
+  received_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  received_by        INTEGER NOT NULL REFERENCES users(id),
+  duplicate_override BOOLEAN NOT NULL DEFAULT false,
+  workflow_mismatch  JSONB,
+  note               TEXT,
+  corrected_at       TIMESTAMPTZ,
+  corrected_by       INTEGER REFERENCES users(id),
+  CHECK (stone_received OR cert_received)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shipment_receipts_branch_date
+  ON shipment_receipts(receiving_branch, received_on, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_shipment_receipts_barcode
+  ON shipment_receipts(barcode);
+CREATE INDEX IF NOT EXISTS idx_shipment_receipts_request_stone
+  ON shipment_receipts(request_stone_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_shipment_receipts_unmatched
+  ON shipment_receipts(receiving_branch, received_on, received_at DESC)
+  WHERE match_state = 'unmatched';

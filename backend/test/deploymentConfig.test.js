@@ -42,3 +42,14 @@ test('schema stores the delivery branch separately from the sales rep branch', (
   const schema = fs.readFileSync(path.join(__dirname, '../src/db/schema.sql'), 'utf8');
   assert.match(schema, /delivery_branch TEXT REFERENCES branches\(id\)/);
 });
+
+test('schema stores branch-scoped physical receipt events independently', () => {
+  const schema = fs.readFileSync(path.join(__dirname, '../src/db/schema.sql'), 'utf8');
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS shipment_receipts/);
+  assert.match(schema, /receiving_branch\s+TEXT NOT NULL REFERENCES branches\(id\)/);
+  assert.match(schema, /request_stone_id\s+INTEGER REFERENCES request_stones\(id\) ON DELETE SET NULL/);
+  assert.match(schema, /received_on\s+DATE NOT NULL/);
+  assert.match(schema, /corrected_by\s+INTEGER REFERENCES users\(id\)/);
+  assert.match(schema, /CHECK \(stone_received OR cert_received\)/);
+  assert.match(schema, /idx_shipment_receipts_unmatched/);
+});
