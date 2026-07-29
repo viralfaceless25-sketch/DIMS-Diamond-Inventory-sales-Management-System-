@@ -10,16 +10,17 @@ const pool = require('../db/pool');
  * `branch` is given and not 'ALL'). Used to drive both the Availability
  * column (Stock & Upload tab) and duplicate-flagging (Requests tab).
  */
-async function getHoldersMap(branch) {
+async function getHoldersMap(branch, queryable = pool) {
   const params = [];
   let branchFilter = '';
   if (branch && branch !== 'ALL') {
     params.push(branch);
-    branchFilter = `AND r.branch = $${params.length}`;
+    branchFilter = `AND COALESCE(r.fulfillment_branch, r.branch) = $${params.length}`;
   }
 
-  const { rows } = await pool.query(
-    `SELECT rs.barcode, rs.request_id, r.sales_rep_id, sr.name AS rep_name
+  const { rows } = await queryable.query(
+    `SELECT rs.barcode, rs.request_id, r.sales_rep_id, sr.name AS rep_name,
+            COALESCE(r.fulfillment_branch, r.branch) AS supply_branch
      FROM request_stones rs
      JOIN requests r ON r.id = rs.request_id
      JOIN sales_reps sr ON sr.id = r.sales_rep_id
@@ -43,7 +44,7 @@ async function getHoldersMap(branch) {
 // Stock pages are paginated. Querying every open request just to annotate the
 // visible page becomes expensive once the team has months of history, so this
 // deliberately limits the lookup to the barcodes being displayed.
-async function getHoldersForBarcodes(branch, barcodes) {
+async function getHoldersForBarcodes(branch, barcodes, queryable = pool) {
   const uniqueBarcodes = [...new Set(barcodes.filter(Boolean))];
   if (!uniqueBarcodes.length) return new Map();
 
@@ -51,10 +52,11 @@ async function getHoldersForBarcodes(branch, barcodes) {
   let branchFilter = '';
   if (branch && branch !== 'ALL') {
     params.push(branch);
-    branchFilter = `AND r.branch = $${params.length}`;
+    branchFilter = `AND COALESCE(r.fulfillment_branch, r.branch) = $${params.length}`;
   }
-  const { rows } = await pool.query(
-    `SELECT rs.barcode, rs.request_id, r.sales_rep_id, sr.name AS rep_name
+  const { rows } = await queryable.query(
+    `SELECT rs.barcode, rs.request_id, r.sales_rep_id, sr.name AS rep_name,
+            COALESCE(r.fulfillment_branch, r.branch) AS supply_branch
      FROM request_stones rs
      JOIN requests r ON r.id = rs.request_id
      JOIN sales_reps sr ON sr.id = r.sales_rep_id

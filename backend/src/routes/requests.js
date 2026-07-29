@@ -4,8 +4,19 @@ const { sortStones } = require('../services/sortingService');
 const { computeBatchStatus, isActive } = require('../services/statusService');
 const { deriveRequestStatus } = require('../services/resolutionService');
 const { getHoldersMap } = require('../services/duplicateService');
-const { isRequestableStockStatus, normalizeStockStatus, stockStatusLabel } = require('../services/stockStatus');
-const { homeBranchForStock, deriveRequestRoute } = require('../services/requestRouting');
+const {
+  homeBranchForStock,
+  deriveRequestRoute,
+  legacyFulfillmentChoice,
+} = require('../services/requestRouting');
+const {
+  normalizeRequestedStones,
+  loadLockedRequestStock,
+  validateRequestStock,
+} = require('../services/requestStockService');
+const {
+  assertInventoryRequestMutation,
+} = require('../services/requestAuthorization');
 const {
   movementForStoneField,
   recordRequestMovement,
@@ -69,25 +80,6 @@ async function inventoryBranch(userId) {
   return rows[0]?.branch || null;
 }
 
-function assertFulfillmentStep(request, actorBranch) {
-  if (!request.cross_branch) return;
-
-  const route = request.delivery_route;
-  const status = request.transfer_status || 'awaiting_source';
-  const expectedBranch = route === 'internal_transfer' ? (request.delivery_branch || request.branch) : request.fulfillment_branch;
-  const expectedStatus = route === 'internal_transfer' ? 'ready_for_rep' : 'packed';
-
-  if (actorBranch !== expectedBranch || status !== expectedStatus) {
-    const err = new Error(
-      route === 'internal_transfer'
-        ? 'Only destination inventory can confirm stones after the transfer is ready for the sales rep'
-        : 'Only supplying inventory can confirm stones after the package is marked packed'
-    );
-    err.status = 409;
-    throw err;
-  }
-}
-
 async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) {
   return withTransaction(pool, async (client) => {
     const { rows: lockRows } = await client.query(
@@ -101,7 +93,7 @@ async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) 
       throw err;
     }
 
-    assertFulfillmentStep(lockRows[0], actorBranch);
+    assertInventoryRequestMutation({ request: lockRows[0], actorBranch });
 
     await mutateFn(client);
 
@@ -111,14 +103,6 @@ async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) 
 
     return { stones, status, branch: lockRows[0].branch, fulfillmentBranch: lockRows[0].fulfillment_branch, crossBranch: lockRows[0].cross_branch };
   });
-}
-
-function normalizeBarcode(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function normalizeItemType(value) {
-  return value === 'jewelry' ? 'jewelry' : 'loose';
 }
 
 // GET /api/requests/stats?branch=ALL  (inventory dashboard only)
@@ -335,78 +319,27 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
     if (!salesRepId) {
       return res.status(400).json({ error: 'Your account is not linked to a sales rep profile' });
     }
-    if (!Array.isArray(stones) || stones.length === 0) {
-      return res.status(400).json({ error: 'A non-empty stones[] list is required' });
-    }
+    const normalizedStones = normalizeRequestedStones(stones);
 
     const { rows: repRows } = await pool.query('SELECT branch FROM sales_reps WHERE id = $1', [salesRepId]);
     const repBranch = repRows[0]?.branch;
     if (!repBranch) {
       return res.status(400).json({ error: 'Your sales rep profile is missing a branch' });
     }
-    const normalizedStones = [];
-    const seen = new Set();
-    for (const stone of stones) {
-      const barcode = normalizeBarcode(stone.barcode);
-      const itemType = normalizeItemType(stone.itemType);
-      if (!barcode) continue;
-      const key = `${itemType}:${barcode}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      normalizedStones.push({ barcode, itemType });
-    }
-    if (normalizedStones.length === 0) {
-      return res.status(400).json({ error: 'At least one valid barcode is required' });
-    }
+    const creation = await withTransaction(pool, async (client) => {
+      const stockByKey = await loadLockedRequestStock(client, normalizedStones);
+      validateRequestStock(normalizedStones, stockByKey);
 
-    const looseBarcodes = normalizedStones.filter((s) => s.itemType === 'loose').map((s) => s.barcode);
-    const jewelryBarcodes = normalizedStones.filter((s) => s.itemType === 'jewelry').map((s) => s.barcode);
-    const stockByKey = new Map();
-    if (looseBarcodes.length) {
-      const { rows } = await pool.query(
-        `SELECT barcode, branch, stock_status, 'loose' AS item_type FROM loose_diamonds WHERE barcode = ANY($1)`,
-        [looseBarcodes]
-      );
-      for (const row of rows) stockByKey.set(`loose:${row.barcode}`, row);
-    }
-    if (jewelryBarcodes.length) {
-      const { rows } = await pool.query(
-        `SELECT barcode, branch, stock_status, 'jewelry' AS item_type FROM jewelry_pieces WHERE barcode = ANY($1)`,
-        [jewelryBarcodes]
-      );
-      for (const row of rows) stockByKey.set(`jewelry:${row.barcode}`, row);
-    }
-
-    const blocked = [];
-    for (const stone of normalizedStones) {
-      const stock = stockByKey.get(`${stone.itemType}:${stone.barcode}`);
-      if (!stock) {
-        blocked.push(`${stone.barcode} is not in stock`);
-        continue;
-      }
-      const status = normalizeStockStatus(stock.stock_status);
-      if (!isRequestableStockStatus(status)) {
-        blocked.push(`${stone.barcode} is ${stockStatusLabel(status)}`);
-      }
-    }
-    if (blocked.length) {
-      return res.status(409).json({
-        error: `Request blocked: ${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`,
-        blocked,
-      });
-    }
-
-    let fulfillmentBranch;
-    let deliveryBranch;
-    let crossBranch;
-    let deliveryRoute;
-    let requestType;
-    try {
       const homeBranch = homeBranchForStock(normalizedStones.map((stone) => ({
         barcode: stone.barcode,
         branch: stockByKey.get(`${stone.itemType}:${stone.barcode}`).branch,
       })));
-      ({
+      const fulfillmentChoice = req.body.fulfillmentChoice || legacyFulfillmentChoice({
+        homeBranch,
+        repBranch,
+        deliveryRoute: requestedDeliveryRoute,
+      });
+      const {
         fulfillmentBranch,
         deliveryBranch,
         crossBranch,
@@ -415,36 +348,41 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       } = deriveRequestRoute({
         homeBranch,
         repBranch,
-        deliveryRoute: requestedDeliveryRoute,
-      }));
-    } catch (routingError) {
-      return res.status(409).json({ error: routingError.message });
-    }
-
-    const dropoffCompany = requestType === 'dropoff' ? String(req.body.dropoffCompany || '').trim() : null;
-    const dropoffAddress = requestType === 'dropoff' ? String(req.body.dropoffAddress || '').trim() : null;
-    if (requestType === 'dropoff' && (!dropoffCompany || !dropoffAddress)) {
-      return res.status(400).json({ error: 'Drop-off company and address are required for drop-off requests' });
-    }
-
-    const holdersMap = await getHoldersMap(fulfillmentBranch);
-    for (const stone of normalizedStones) {
-      const holders = holdersMap.get(stone.barcode) || [];
-      if (holders.length > 0) {
-        const names = [...new Set(holders.map((h) => h.repName))].join(', ');
-        blocked.push(`${stone.barcode} is already requested by ${names}`);
-      }
-    }
-    if (blocked.length) {
-      return res.status(409).json({
-        error: `Request blocked: ${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`,
-        blocked,
+        fulfillmentChoice,
+        deliveryBranch: req.body.deliveryBranch,
       });
-    }
 
-    // Only the actual write is retried on a CockroachDB serialization
-    // conflict — the validation above is read-only and safe to have run once.
-    const requestId = await withTransaction(pool, async (client) => {
+      const dropoffCompany = requestType === 'dropoff'
+        ? String(req.body.dropoffCompany || '').trim() || null
+        : null;
+      const dropoffAddress = requestType === 'dropoff'
+        ? String(req.body.dropoffAddress || '').trim()
+        : null;
+      if (requestType === 'dropoff' && !dropoffAddress) {
+        const error = new Error('Drop-off address is required for drop-off requests');
+        error.status = 400;
+        throw error;
+      }
+
+      const blocked = [];
+      const holdersMap = await getHoldersMap(fulfillmentBranch, client);
+      for (const stone of normalizedStones) {
+        const holders = holdersMap.get(stone.barcode) || [];
+        if (holders.length > 0) {
+          const names = [...new Set(holders.map((holder) => holder.repName))].join(', ');
+          blocked.push(`${stone.barcode} is already requested by ${names}`);
+        }
+      }
+      if (blocked.length) {
+        const summary = `${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`;
+        const error = new Error(`Request blocked: ${summary}`);
+        error.status = 409;
+        error.blocked = blocked;
+        throw error;
+      }
+
+      // Locking, availability validation, holder recheck, and writes share one
+      // retryable transaction so simultaneous requests cannot both win.
       const { rows: reqRows } = await client.query(
         `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'awaiting') RETURNING id`,
@@ -466,18 +404,49 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         actorId: req.user.id,
         details: { deliveryRoute, requestType },
       });
-      return newRequestId;
+      return {
+        requestId: newRequestId,
+        fulfillmentBranch,
+        deliveryBranch,
+        crossBranch,
+        deliveryRoute,
+      };
     });
 
-    const stonesFull = await fetchStonesForRequest(requestId);
-    broadcast(repBranch, 'request:created', { requestId, branch: repBranch });
-    if (crossBranch) {
-      broadcast(fulfillmentBranch, 'request:created', { requestId, branch: fulfillmentBranch, destinationBranch: deliveryBranch });
-      if (deliveryBranch !== fulfillmentBranch && deliveryBranch !== repBranch) broadcast(deliveryBranch, 'request:created', { requestId, branch: deliveryBranch, sourceBranch: fulfillmentBranch });
+    const stonesFull = await fetchStonesForRequest(creation.requestId);
+    broadcast(repBranch, 'request:created', { requestId: creation.requestId, branch: repBranch });
+    if (creation.crossBranch) {
+      broadcast(creation.fulfillmentBranch, 'request:created', {
+        requestId: creation.requestId,
+        branch: creation.fulfillmentBranch,
+        destinationBranch: creation.deliveryBranch,
+      });
+      if (creation.deliveryBranch !== creation.fulfillmentBranch && creation.deliveryBranch !== repBranch) {
+        broadcast(creation.deliveryBranch, 'request:created', {
+          requestId: creation.requestId,
+          branch: creation.deliveryBranch,
+          sourceBranch: creation.fulfillmentBranch,
+        });
+      }
     }
 
-    res.status(201).json({ id: requestId, branch: repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, stones: stonesFull, status: 'awaiting' });
+    res.status(201).json({
+      id: creation.requestId,
+      branch: repBranch,
+      fulfillmentBranch: creation.fulfillmentBranch,
+      deliveryBranch: creation.deliveryBranch,
+      crossBranch: creation.crossBranch,
+      deliveryRoute: creation.deliveryRoute,
+      stones: stonesFull,
+      status: 'awaiting',
+    });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({
+        error: err.message,
+        ...(err.blocked ? { blocked: err.blocked } : {}),
+      });
+    }
     next(err);
   }
 });
@@ -639,7 +608,7 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
          FROM requests WHERE id = $1 FOR UPDATE`, [id]
       );
       if (!rows[0]) { const err = new Error('Request not found'); err.status = 404; throw err; }
-      assertFulfillmentStep(rows[0], actorBranch);
+      assertInventoryRequestMutation({ request: rows[0], actorBranch });
       const stones = await fetchStonesForRequest(id, client);
       const status = deriveRequestStatus(stones, rows[0].request_scope, true);
       await client.query('UPDATE requests SET status = $1, resolution_confirmed = true WHERE id = $2', [status, id]);
