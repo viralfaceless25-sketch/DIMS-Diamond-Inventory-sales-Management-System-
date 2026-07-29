@@ -10,6 +10,7 @@ import { Check, StatusBadge, DuplicateBadge, Avatar } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
 import {
+  canResolveSourceItems,
   documentStepState,
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
@@ -173,7 +174,7 @@ export default function RequestsPage() {
     return 'oklch(74% 0.13 205)';
   }
 
-  async function updateTransfer(requestId: number, action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer') {
+  async function updateTransfer(requestId: number, action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer') {
     try { await api.setTransferStatus(requestId, action); await load(); }
     catch (err) { window.alert(err instanceof Error ? err.message : 'Could not update this transfer.'); }
   }
@@ -278,12 +279,11 @@ export default function RequestsPage() {
     });
   }
 
-  function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'receive' | 'ready' | 'hand_to_rep' | 'ship_customer' | 'dropoff_customer'; label: string } | null {
+  function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer'; label: string } | null {
     if (r.status === 'cancelled' || r.status === 'fulfilled') return null;
     if (!hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute)) return null;
     const status = r.transferStatus || 'awaiting_source';
     const isSource = user?.branch === r.fulfillmentBranch;
-    const isDestination = user?.branch === r.deliveryBranch;
     if (status === 'awaiting_source' && isSource && (!r.crossBranch || r.erpTransferConfirmed)) return { action: 'pack', label: 'Mark packed' };
     if (status === 'packed' && r.deliveryRoute === 'internal_transfer' && isSource) return { action: 'ship', label: `Ship to ${r.deliveryBranch}` };
     if (status === 'packed'
@@ -295,9 +295,6 @@ export default function RequestsPage() {
       return { action: 'ship_customer', label: 'Ship to customer' };
     }
     if (status === 'packed' && r.deliveryRoute === 'customer_dropoff' && itemsConfirmed && r.resolutionConfirmed && isSource) return { action: 'dropoff_customer', label: 'Mark dropped off' };
-    if (status === 'shipped_to_destination' && isDestination) return { action: 'receive', label: 'Mark received' };
-    if (status === 'received_at_destination' && isDestination) return { action: 'ready', label: 'Ready for sales rep' };
-    if (status === 'ready_for_rep' && itemsConfirmed && r.resolutionConfirmed && isDestination) return { action: 'hand_to_rep', label: 'Hand to sales rep' };
     return null;
   }
 
@@ -344,15 +341,13 @@ export default function RequestsPage() {
     });
   }
 
-  function canConfirmItems(r: RequestSummary) {
-    if (r.status === 'cancelled' || r.status === 'fulfilled') return false;
-    const status = r.transferStatus || 'awaiting_source';
-    if (r.deliveryRoute === 'customer_ship' || r.deliveryRoute === 'customer_dropoff') {
-      return user?.branch === r.fulfillmentBranch && status === 'packed';
-    }
-    if (!r.crossBranch) return true;
-    if (r.deliveryRoute === 'internal_transfer') return user?.branch === r.deliveryBranch && status === 'ready_for_rep';
-    return false;
+  function canResolveItems(r: RequestSummary) {
+    return canResolveSourceItems({
+      status: r.status,
+      fulfillmentBranch: r.fulfillmentBranch,
+      deliveryRoute: r.deliveryRoute,
+      transferStatus: r.transferStatus,
+    }, user?.branch);
   }
 
   function canMarkReturned(r: RequestSummary) {
@@ -468,9 +463,9 @@ export default function RequestsPage() {
                             <div onClick={() => toggleExpand(r.id)} style={{ display: 'grid', gridTemplateColumns: '92px minmax(0,1fr) 70px 90px 80px minmax(0,190px)', alignItems: 'center', gap: 12, padding: '13px 16px', cursor: 'pointer' }}>
                               <button
                                 onClick={(event) => { event.stopPropagation(); confirmResolution(r.id); }}
-                                disabled={!canConfirmItems(r) || Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed)}
+                                disabled={!canResolveItems(r) || Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed)}
                                 title="Confirm the request with the items currently checked"
-                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.bgSide : ACCENT, color: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.textFaint : '#0a0e0d', cursor: !canConfirmItems(r) || detail?.resolutionConfirmed || r.resolutionConfirmed ? 'not-allowed' : 'pointer', font: "800 11px 'Inter'" }}
+                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.bgSide : ACCENT, color: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.textFaint : '#0a0e0d', cursor: !canResolveItems(r) || detail?.resolutionConfirmed || r.resolutionConfirmed ? 'not-allowed' : 'pointer', font: "800 11px 'Inter'" }}
                               >
                                 {detail?.resolutionConfirmed || r.resolutionConfirmed ? 'Confirmed' : 'Confirm'}
                               </button>
@@ -551,15 +546,15 @@ export default function RequestsPage() {
                                 )}
                                 <div style={{ minWidth: 1040 }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 11.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
-                                  <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canConfirmItems(r)} size={18} /></div>
-                                  <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canConfirmItems(r)} size={18} /></div>
+                                  <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} size={18} /></div>
+                                  <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} size={18} /></div>
                                   <div title="Mark every requested item returned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>RET</span><Check checked={detail.stones.every((stone) => stone.returned)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.returned), 'returned')} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" size={18} /></div>
                                   <div>STOCK #</div><div>SHAPE</div><div>CARAT</div><div>COL</div><div>CLTY</div><div>CERT #</div>
                                 </div>
                                 {detail.stones.map((s) => (
                                   <div key={s.id} style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '13px 18px', alignItems: 'center', minHeight: 52, borderTop: `1px solid ${t.rowBorder}`, background: s.duplicate ? 'oklch(70% 0.17 30 / 0.08)' : 'transparent' }}>
-                                    <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canConfirmItems(r)} />
-                                    <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canConfirmItems(r)} />
+                                    <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} />
+                                    <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} />
                                     <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" />
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</span>

@@ -28,15 +28,14 @@ function assertInventoryRequestMutation({
   const status = request.transfer_status || 'awaiting_source';
   if (route === 'internal_transfer') {
     const destinationBranch = request.delivery_branch || request.branch;
-    const allowedStatus = mutationField === 'returned'
-      ? 'handed_to_rep'
-      : 'ready_for_rep';
-    if (actorBranch !== destinationBranch || status !== allowedStatus) {
-      throw requestError(
-        mutationField === 'returned'
-          ? 'Only destination inventory can record a return after handoff to the sales rep'
-          : 'Only destination inventory can confirm stones after the transfer is ready for the sales rep'
-      );
+    if (mutationField === 'returned') {
+      if (actorBranch !== destinationBranch || status !== 'handed_to_rep') {
+        throw requestError('Only destination inventory can record a return after handoff to the sales rep');
+      }
+      return;
+    }
+    if (actorBranch !== sourceBranch || !['awaiting_source', 'packed'].includes(status)) {
+      throw requestError('Only supplying inventory can confirm requested stones and certificates before shipment');
     }
     return;
   }

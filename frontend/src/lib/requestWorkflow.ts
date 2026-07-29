@@ -137,6 +137,27 @@ export function hasDeliveryWorkflow(
   return Boolean(crossBranch) || route === 'customer_ship' || route === 'customer_dropoff';
 }
 
+export function canResolveSourceItems(
+  request: {
+    status: string;
+    fulfillmentBranch: string;
+    deliveryRoute: DeliveryRoute | null;
+    transferStatus: string | null;
+  },
+  actorBranch: string | null | undefined
+) {
+  if (!actorBranch || ['cancelled', 'fulfilled'].includes(request.status)) return false;
+  if (actorBranch !== request.fulfillmentBranch) return false;
+  const transferStatus = request.transferStatus || 'awaiting_source';
+  if (request.deliveryRoute === 'internal_transfer') {
+    return ['awaiting_source', 'packed'].includes(transferStatus);
+  }
+  if (request.deliveryRoute === 'customer_ship' || request.deliveryRoute === 'customer_dropoff') {
+    return transferStatus === 'packed';
+  }
+  return true;
+}
+
 export function documentStepState({
   workflowVersion,
   crossBranch,

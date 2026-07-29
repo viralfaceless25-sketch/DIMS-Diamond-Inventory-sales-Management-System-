@@ -4,6 +4,7 @@ import {
   availabilityText,
   canAddToHomeBranch,
   canRequestAvailability,
+  canResolveSourceItems,
   defaultFulfillmentChoice,
   deliveryRouteForChoice,
   documentStepState,
@@ -13,6 +14,22 @@ import {
   hasDeliveryWorkflow,
   requestTypeForFulfillment,
 } from '../src/lib/requestWorkflow';
+
+test('only the supplying branch resolves internal-transfer items before shipment', () => {
+  const request = {
+    status: 'half_fulfilled',
+    fulfillmentBranch: 'NY',
+    deliveryRoute: 'internal_transfer' as const,
+    transferStatus: 'awaiting_source',
+  };
+
+  assert.equal(canResolveSourceItems(request, 'NY'), true);
+  assert.equal(canResolveSourceItems(request, 'LA'), false);
+  assert.equal(canResolveSourceItems({
+    ...request,
+    transferStatus: 'ready_for_rep',
+  }, 'NY'), false);
+});
 
 test('in-transit availability is explicit and blocked', () => {
   assert.equal(

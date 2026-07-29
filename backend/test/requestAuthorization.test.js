@@ -27,18 +27,29 @@ test('local request mutations require the supplying branch inventory', () => {
   );
 });
 
-test('cross-branch request mutations retain route and status ownership', () => {
+test('source inventory resolves an internal transfer before shipment', () => {
+  const request = {
+    cross_branch: true,
+    fulfillment_branch: 'NY',
+    delivery_branch: 'LA',
+    delivery_route: 'internal_transfer',
+    transfer_status: 'awaiting_source',
+  };
+
   assert.doesNotThrow(() => assertInventoryRequestMutation({
-    request: {
-      cross_branch: true,
-      fulfillment_branch: 'LA',
-      delivery_branch: 'NY',
-      delivery_route: 'internal_transfer',
-      transfer_status: 'ready_for_rep',
-    },
+    request,
     actorBranch: 'NY',
+    mutationField: 'stone_found',
   }));
 
+  assert.throws(() => assertInventoryRequestMutation({
+    request,
+    actorBranch: 'LA',
+    mutationField: 'stone_found',
+  }), /Only supplying inventory/);
+});
+
+test('direct customer request resolution stays with supplying inventory', () => {
   assert.doesNotThrow(() => assertInventoryRequestMutation({
     request: {
       cross_branch: true,
@@ -95,7 +106,7 @@ test('destination inventory can record a return after handoff without reopening 
     request: handed,
     actorBranch: 'NY',
     mutationField: 'stone_found',
-  }), /ready for the sales rep/);
+  }), /supplying inventory/);
   assert.throws(() => assertInventoryRequestMutation({
     request: { ...handed, status: 'half_fulfilled' },
     actorBranch: 'NY',
