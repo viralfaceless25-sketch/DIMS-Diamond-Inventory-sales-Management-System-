@@ -69,6 +69,54 @@ test('XLSX jewelry stock parses without blocking the API event loop', async () =
   }
 });
 
+test('XLSX loose stock remains write/read compatible with the archive dependency tree', async () => {
+  const ExcelJS = require('exceljs');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'diamond-stock-test-'));
+  const filePath = path.join(dir, 'loose.xlsx');
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Loose Stock');
+    sheet.addRow([
+      'Barcode',
+      'Branch',
+      'Status',
+      'Carat',
+      'Shape',
+      'Certificate No',
+      'Cost',
+    ]);
+    sheet.addRow(['LA-XLSX-1', 'Los Angeles', 'Available', 1.51, 'Emerald', 'GIA-101', 12345.67]);
+    sheet.addRow(['NY-XLSX-2', 'New York', 'On Memo', 0.82, 'Round', 'GIA-102', 4321]);
+    await workbook.xlsx.writeFile(filePath);
+
+    const result = await parseStockFile(filePath, 'loose.xlsx');
+
+    assert.equal(result.format, 'loose');
+    assert.deepEqual(result.rows, [
+      {
+        barcode: 'LA-XLSX-1',
+        branch: 'Los Angeles',
+        stock_status: 'Available',
+        carat: 1.51,
+        shape: 'Emerald',
+        certificate_no: 'GIA-101',
+        cost: 12345.67,
+      },
+      {
+        barcode: 'NY-XLSX-2',
+        branch: 'New York',
+        stock_status: 'On Memo',
+        carat: 0.82,
+        shape: 'Round',
+        certificate_no: 'GIA-102',
+        cost: 4321,
+      },
+    ]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('legacy XLS files are rejected safely instead of exhausting server memory', async () => {
   await withTempFile('legacy.xls', 'not-an-xls', async (filePath) => {
     await assert.rejects(
