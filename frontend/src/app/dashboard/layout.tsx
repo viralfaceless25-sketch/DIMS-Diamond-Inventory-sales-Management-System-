@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 
 const NAV = [
   { href: '/dashboard/requests', label: 'Requests', icon: 'M4 4h16v12H8l-4 4V4z' },
+  { href: '/dashboard/receiving', label: 'Receive Shipments', icon: 'M3 7h11v10H3zM14 10h4l3 3v4h-7zM7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
   { href: '/dashboard/stock', label: 'Stock & Upload', icon: 'rect' },
   { href: '/dashboard/tracking', label: 'Given / Requested', icon: 'M5 19V9M12 19V5M19 19v-7' },
 ];

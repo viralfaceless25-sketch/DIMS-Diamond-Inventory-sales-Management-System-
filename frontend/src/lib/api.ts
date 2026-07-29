@@ -408,6 +408,81 @@ export interface StockRecheck {
   reused?: boolean;
 }
 
+export interface ReceiptCandidate {
+  requestId: number;
+  requestStoneId: number;
+  barcode: string;
+  itemType: 'loose' | 'jewelry';
+  sourceBranch: string;
+  destinationBranch: string;
+  requestScope: 'stone_and_cert' | 'stone_only' | 'cert_only';
+  transferStatus: string;
+  requestStatus: BatchStatus;
+  erpTransferConfirmed: boolean;
+  erpTransferReceived: boolean;
+  rep: { id: number; name: string };
+}
+
+export interface PreviousReceipt {
+  id: number;
+  requestId: number | null;
+  requestStoneId: number | null;
+  barcode: string;
+  stoneReceived: boolean;
+  certReceived: boolean;
+  matchState: 'matched' | 'unmatched';
+  sourceBranch: string;
+  receivedOn: string;
+  receivedAt: string;
+  receivedByEmail: string;
+}
+
+export interface ReceiptLookup {
+  barcode: string;
+  receivingBranch: string;
+  candidates: ReceiptCandidate[];
+  previousReceipts: PreviousReceipt[];
+}
+
+export type ReceiptStatus =
+  | 'Needs review'
+  | 'Partial arrival'
+  | 'Ready for rep'
+  | 'Handed over';
+
+export interface ShipmentReceipt {
+  id: number;
+  receivingBranch: string;
+  sourceBranch: string;
+  requestId: number | null;
+  requestStoneId: number | null;
+  barcode: string;
+  stoneReceived: boolean;
+  certReceived: boolean;
+  matchState: 'matched' | 'unmatched';
+  receivedOn: string;
+  receivedAt: string;
+  receivedBy: { id: number; email: string };
+  duplicateOverride: boolean;
+  workflowMismatch: Record<string, unknown> | null;
+  note: string | null;
+  correctedAt: string | null;
+  correctedByEmail: string | null;
+  transferStatus: string | null;
+  requestScope: 'stone_and_cert' | 'stone_only' | 'cert_only' | null;
+  requestComplete: boolean;
+  handedOff: boolean;
+  canHandoff: boolean;
+  status: ReceiptStatus;
+  rep: { id: number; name: string } | null;
+}
+
+export interface ReceiptHistory {
+  branch: string;
+  date: string;
+  rows: ShipmentReceipt[];
+}
+
 // ---- Token storage (localStorage; fine for a real app, unlike artifacts) ----
 
 const TOKEN_KEY = 'diamond_token';
@@ -478,6 +553,20 @@ async function requestDocumentUrl(
     throw new ApiError(res.status, message);
   }
   return URL.createObjectURL(await res.blob());
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = 'Could not download the file';
+    try { message = JSON.parse(text)?.error || message; } catch { /* response is not JSON */ }
+    throw new ApiError(res.status, message);
+  }
+  return res.blob();
 }
 
 const shippingLabelUrl = (requestId: number) =>
@@ -669,6 +758,102 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(result),
     }),
+
+  // branch shipment receiving (physical arrival only; ERP BT stays separate)
+  receiptLookup: (barcode: string) =>
+    request<ReceiptLookup>(
+      `/api/receipts/lookup?barcode=${encodeURIComponent(barcode)}`
+    ),
+  receiptHistory: (params: {
+    date: string;
+    search?: string;
+    sourceBranch?: string;
+    status?: ReceiptStatus | '';
+  }) => {
+    const query = new URLSearchParams({ date: params.date });
+    if (params.search) query.set('search', params.search);
+    if (params.sourceBranch) query.set('sourceBranch', params.sourceBranch);
+    if (params.status) query.set('status', params.status);
+    return request<ReceiptHistory>(`/api/receipts?${query.toString()}`);
+  },
+  createReceipt: (data: {
+    barcode: string;
+    stoneReceived: boolean;
+    certReceived: boolean;
+    requestStoneId?: number;
+    sourceBranch?: string;
+    duplicateOverride?: boolean;
+    note?: string;
+  }) =>
+    request<{
+      id: number;
+      barcode: string;
+      requestId: number | null;
+      requestStoneId: number | null;
+      receivingBranch: string;
+      sourceBranch: string;
+      matchState: 'matched' | 'unmatched';
+      requestComplete: boolean;
+      transferStatus: string | null;
+      rep: { id: number; name: string } | null;
+    }>('/api/receipts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  correctReceipt: (
+    id: number,
+    data: {
+      stoneReceived: boolean;
+      certReceived: boolean;
+      sourceBranch?: string;
+      duplicateOverride?: boolean;
+      note?: string;
+    }
+  ) =>
+    request<{
+      id: number;
+      requestId: number | null;
+      requestComplete: boolean;
+      transferStatus: string | null;
+    }>(`/api/receipts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  linkReceipt: (
+    id: number,
+    requestStoneId: number,
+    duplicateOverride = false
+  ) =>
+    request<{
+      id: number;
+      requestId: number;
+      requestStoneId: number;
+      requestComplete: boolean;
+      transferStatus: string;
+    }>(`/api/receipts/${id}/link`, {
+      method: 'PATCH',
+      body: JSON.stringify({ requestStoneId, duplicateOverride }),
+    }),
+  handReceiptToRep: (requestId: number) =>
+    request<{
+      requestId: number;
+      transferStatus: 'handed_to_rep';
+      status: 'fulfilled';
+    }>(`/api/receipts/requests/${requestId}/handoff`, {
+      method: 'POST',
+    }),
+  receiptExport: (params: {
+    date: string;
+    search?: string;
+    sourceBranch?: string;
+    status?: ReceiptStatus | '';
+  }) => {
+    const query = new URLSearchParams({ date: params.date });
+    if (params.search) query.set('search', params.search);
+    if (params.sourceBranch) query.set('sourceBranch', params.sourceBranch);
+    if (params.status) query.set('status', params.status);
+    return requestBlob(`/api/receipts/export?${query.toString()}`);
+  },
 
   // tracking (inventory)
   tracking: (branch: string, search?: string, page = 1, movement?: string) => {

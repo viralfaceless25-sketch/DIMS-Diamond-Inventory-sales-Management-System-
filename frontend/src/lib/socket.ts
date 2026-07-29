@@ -31,6 +31,7 @@ export function useBranchSocket(
       'request:updated',
       'request:completed',
       'stock:updated',
+      'receipt:updated',
     ];
     events.forEach((ev) => {
       socket.on(ev, (payload: unknown) => handlerRef.current(ev, payload));
