@@ -9,6 +9,7 @@ const { getHoldersForBarcodes } = require('../services/duplicateService');
 const { normalizeStockStatus, stockStatusLabel } = require('../services/stockStatus');
 const { parseStockFile } = require('../services/stockFileParser');
 const { enqueueStockImport } = require('../services/stockImportQueue');
+const { archiveBranchSnapshot } = require('../services/stockSnapshotService');
 const { withTransaction } = require('../db/withRetry');
 const { broadcast } = require('../sockets');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -29,6 +30,13 @@ const upload = multer({
 });
 
 function availabilityFor(item, holdersMap) {
+  if (item.snapshot_active === false) {
+    return {
+      status: 'not_in_snapshot',
+      label: 'Not in latest ERP snapshot',
+      holders: [],
+    };
+  }
   const status = normalizeStockStatus(item.stock_status);
   const holders = holdersMap.get(item.barcode) || [];
   if (status !== 'available') {
@@ -111,7 +119,11 @@ function addMetalTokenFilter(conditions, params, values) {
 
 async function distinctValues(table, column, branch, itemType) {
   const params = [];
-  const conditions = [`${column} IS NOT NULL`, `trim(${column}) <> ''`];
+  const conditions = [
+    'snapshot_active = true',
+    `${column} IS NOT NULL`,
+    `trim(${column}) <> ''`,
+  ];
   if (branch && branch !== 'ALL') {
     params.push(branch);
     conditions.push(`branch = $${params.length}`);
@@ -161,7 +173,7 @@ router.get('/loose', async (req, res, next) => {
     const statuses = csv(req.query.statuses).map(normalizeStockStatus);
 
     const params = [];
-    const conditions = [];
+    const conditions = ['snapshot_active = true'];
     if (branch && branch !== 'ALL') {
       params.push(branch);
       conditions.push(`branch = $${params.length}`);
@@ -247,7 +259,7 @@ router.get('/jewelry', async (req, res, next) => {
     const statuses = csv(req.query.statuses).map(normalizeStockStatus);
 
     const params = [];
-    const conditions = [];
+    const conditions = ['snapshot_active = true'];
     if (branch && branch !== 'ALL') {
       params.push(branch);
       conditions.push(`branch = $${params.length}`);
@@ -413,7 +425,12 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
     const updateAssignments = spec.cols
       .filter((c) => c !== 'barcode')
       .map((c) => `${c}=EXCLUDED.${c}`)
-      .concat('updated_at=now()')
+      .concat(
+        'snapshot_active=true',
+        'last_seen_at=now()',
+        'snapshot_missing_since=NULL',
+        'updated_at=now()'
+      )
       .join(', ');
     const BATCH_SIZE = 500; // 500 rows * ~12 cols = 6000 params, well under Postgres' 65535 limit
 
@@ -422,12 +439,16 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
     // abort this with a retryable conflict — withTransaction retries the
     // ENTIRE thing (fresh client, fresh BEGIN) rather than leaving a branch
     // half-updated.
-    const { totalInserted, branchesUpdated } = await withTransaction(pool, async (client) => {
+    const {
+      totalInserted,
+      branchesUpdated,
+      snapshotRowsInactive,
+    } = await withTransaction(pool, async (client) => {
       let inserted = 0;
       const updated = [];
 
       for (const [branch, branchRows] of byBranch.entries()) {
-        await client.query(`DELETE FROM ${table} WHERE branch = $1`, [branch]);
+        await archiveBranchSnapshot(client, table, branch);
 
         // De-dupe within the sheet by barcode (last occurrence wins).
         const byBarcode = new Map();
@@ -459,7 +480,17 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
         updated.push(branch);
       }
 
-      return { totalInserted: inserted, branchesUpdated: updated };
+      const { rows: inactiveRows } = await client.query(
+        `SELECT count(*)::int AS total
+         FROM ${table}
+         WHERE branch = ANY($1) AND snapshot_active = false`,
+        [updated]
+      );
+      return {
+        totalInserted: inserted,
+        branchesUpdated: updated,
+        snapshotRowsInactive: inactiveRows[0]?.total || 0,
+      };
     });
 
     for (const branch of branchesUpdated) {
@@ -470,6 +501,7 @@ router.post('/upload', requireRole('inventory'), stockUploadLimit, upload.single
       format,
       branchesUpdated,
       rowsImported: totalInserted,
+      snapshotRowsInactive,
       skippedBranches,
       processingMs: Date.now() - startedAt,
     });

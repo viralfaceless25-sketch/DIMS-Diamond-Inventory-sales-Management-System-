@@ -5,6 +5,9 @@ function requestError(message, status = 409) {
 }
 
 function assertInventoryRequestMutation({ request, actorBranch }) {
+  if (request.status === 'cancelled') {
+    throw requestError('A cancelled request cannot be updated');
+  }
   const sourceBranch = request.fulfillment_branch || request.branch;
 
   if (!request.cross_branch) {

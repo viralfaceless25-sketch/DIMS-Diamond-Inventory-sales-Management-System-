@@ -32,7 +32,7 @@ function computeBatchStatus(stones, requestScope = 'stone_and_cert') {
 }
 
 function isActive(status) {
-  return status !== 'fulfilled';
+  return !['fulfilled', 'cancelled'].includes(status);
 }
 
 // Per-stone tracking status (for the Tracking tab), independent of batch status

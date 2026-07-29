@@ -10,13 +10,19 @@ const {
   legacyFulfillmentChoice,
 } = require('../services/requestRouting');
 const {
+  authorizeLockedRequestStock,
   normalizeRequestedStones,
-  loadLockedRequestStock,
-  validateRequestStock,
 } = require('../services/requestStockService');
+const {
+  consumeAvailabilityAuthorizations,
+  buildRequestAvailabilityVerification,
+} = require('../services/stockRecheckService');
 const {
   assertInventoryRequestMutation,
 } = require('../services/requestAuthorization');
+const {
+  deriveSnapshotReconciliation,
+} = require('../services/stockSnapshotService');
 const {
   movementForStoneField,
   recordRequestMovement,
@@ -40,16 +46,100 @@ const STONE_DETAIL_SELECT = `
     rs.stone_found, rs.cert_found, rs.returned,
     rs.stone_found_at, rs.cert_found_at, rs.returned_at,
     ld.shape, COALESCE(ld.carat, jp.diamond_cts) AS carat, ld.color, ld.clarity, COALESCE(ld.certificate_no, jp.cert_no) AS cert_no,
-    jp.category, jp.item
+    jp.category, jp.item,
+    COALESCE(ld.branch, jp.branch) AS snapshot_branch,
+    COALESCE(ld.stock_status, jp.stock_status) AS snapshot_stock_status,
+    COALESCE(ld.snapshot_active, jp.snapshot_active, false) AS snapshot_active,
+    COALESCE(ld.last_seen_at, jp.last_seen_at) AS last_seen_at,
+    COALESCE(ld.snapshot_missing_since, jp.snapshot_missing_since) AS snapshot_missing_since,
+    r.cross_branch AS request_cross_branch,
+    COALESCE(r.fulfillment_branch, r.branch) AS request_fulfillment_branch,
+    COALESCE(r.delivery_branch, r.branch) AS request_delivery_branch,
+    r.erp_transfer_confirmed_at AS request_erp_transfer_issued_at,
+    r.erp_transfer_received_at AS request_erp_transfer_received_at,
+    consumed_recheck.id AS live_recheck_id,
+    consumed_recheck.snapshot_status AS live_recheck_snapshot_status,
+    consumed_recheck.snapshot_active AS live_recheck_snapshot_active,
+    consumed_recheck.snapshot_last_seen_at AS live_recheck_snapshot_last_seen_at,
+    consumed_recheck.verified_at AS live_recheck_verified_at,
+    consumed_recheck.verified_by AS live_recheck_verified_by,
+    recheck_verifier.email AS live_recheck_verifier_email
   FROM request_stones rs
+  JOIN requests r ON r.id = rs.request_id
   LEFT JOIN loose_diamonds ld ON ld.barcode = rs.barcode AND rs.item_type = 'loose'
   LEFT JOIN jewelry_pieces jp ON jp.barcode = rs.barcode AND rs.item_type = 'jewelry'
+  LEFT JOIN LATERAL (
+    SELECT rr.id, rr.snapshot_status, rr.snapshot_active,
+           rr.snapshot_last_seen_at, rr.verified_at, rr.verified_by
+    FROM stock_recheck_requests rr
+    WHERE rr.consumed_request_id = r.id
+      AND rr.barcode = rs.barcode
+      AND rr.item_type = rs.item_type
+    ORDER BY rr.consumed_at DESC, rr.id DESC
+    LIMIT 1
+  ) consumed_recheck ON true
+  LEFT JOIN users recheck_verifier ON recheck_verifier.id = consumed_recheck.verified_by
   WHERE rs.request_id = $1
 `;
 
 async function fetchStonesForRequest(requestId, queryable = pool) {
   const { rows } = await queryable.query(STONE_DETAIL_SELECT, [requestId]);
-  return sortStones(rows);
+  return sortStones(rows.map((row) => {
+    const {
+      request_cross_branch: requestCrossBranch,
+      request_fulfillment_branch: requestFulfillmentBranch,
+      request_delivery_branch: requestDeliveryBranch,
+      request_erp_transfer_issued_at: requestErpTransferIssuedAt,
+      request_erp_transfer_received_at: requestErpTransferReceivedAt,
+      snapshot_branch: snapshotBranch,
+      snapshot_stock_status: snapshotStockStatus,
+      snapshot_active: snapshotActive,
+      last_seen_at: lastSeenAt,
+      snapshot_missing_since: snapshotMissingSince,
+      live_recheck_id: liveRecheckId,
+      live_recheck_snapshot_status: liveRecheckSnapshotStatus,
+      live_recheck_snapshot_active: liveRecheckSnapshotActive,
+      live_recheck_snapshot_last_seen_at: liveRecheckSnapshotLastSeenAt,
+      live_recheck_verified_at: liveRecheckVerifiedAt,
+      live_recheck_verified_by: liveRecheckVerifiedBy,
+      live_recheck_verifier_email: liveRecheckVerifierEmail,
+      ...stone
+    } = row;
+    const request = {
+      crossBranch: requestCrossBranch,
+      fulfillmentBranch: requestFulfillmentBranch,
+      deliveryBranch: requestDeliveryBranch,
+      erpTransferIssuedAt: requestErpTransferIssuedAt,
+      erpTransferReceivedAt: requestErpTransferReceivedAt,
+    };
+    const stock = {
+      snapshotActive,
+      branch: snapshotBranch,
+      stockStatus: snapshotStockStatus,
+      lastSeenAt,
+      snapshotMissingSince,
+    };
+    return {
+      ...stone,
+      snapshot: {
+        active: snapshotActive,
+        branch: snapshotBranch,
+        stockStatus: snapshotStockStatus,
+        lastSeenAt,
+        missingSince: snapshotMissingSince,
+      },
+      snapshotReconciliation: deriveSnapshotReconciliation({ request, stock }),
+      liveErpVerification: buildRequestAvailabilityVerification({
+        live_recheck_id: liveRecheckId,
+        live_recheck_snapshot_status: liveRecheckSnapshotStatus,
+        live_recheck_snapshot_active: liveRecheckSnapshotActive,
+        live_recheck_snapshot_last_seen_at: liveRecheckSnapshotLastSeenAt,
+        live_recheck_verified_at: liveRecheckVerifiedAt,
+        live_recheck_verified_by: liveRecheckVerifiedBy,
+        live_recheck_verifier_email: liveRecheckVerifierEmail,
+      }),
+    };
+  }));
 }
 
 function annotateDuplicates(stones, holdersMap, currentRepId) {
@@ -83,7 +173,7 @@ async function inventoryBranch(userId) {
 async function applyStoneMutationAndRecompute(requestId, actorBranch, mutateFn) {
   return withTransaction(pool, async (client) => {
     const { rows: lockRows } = await client.query(
-      `SELECT branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, transfer_status, request_scope
+      `SELECT branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, transfer_status, request_scope, status
        FROM requests WHERE id = $1 FOR UPDATE`,
       [requestId]
     );
@@ -119,8 +209,9 @@ router.get('/stats', requireRole('inventory'), async (req, res, next) => {
       `SELECT id, status FROM requests ${where}`,
       params
     );
-    const pendingRequests = reqRows.filter((r) => r.status !== 'fulfilled').length;
+    const pendingRequests = reqRows.filter((r) => isActive(r.status)).length;
     const fulfilledRequests = reqRows.filter((r) => r.status === 'fulfilled').length;
+    const cancelledRequests = reqRows.filter((r) => r.status === 'cancelled').length;
 
     const stoneParams = [];
     let stoneWhere = '';
@@ -143,6 +234,7 @@ router.get('/stats', requireRole('inventory'), async (req, res, next) => {
       stonesRequested: Number(stoneCountRows[0].count),
       duplicateFlags: distinctDuplicateBarcodes,
       fulfilledRequests,
+      cancelledRequests,
     });
   } catch (err) {
     next(err);
@@ -177,7 +269,11 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
 
     const { rows: requests } = await pool.query(
       `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
-              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by, r.requested_at, r.status, r.source,
+              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
+              r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
+              r.erp_receive_requested_at, r.erp_receive_requested_by,
+              r.cancelled_at, r.cancelled_by, r.cancellation_status, r.cancellation_reason,
+              r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
               sr.id AS rep_id, sr.name AS rep_name
@@ -220,6 +316,19 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           erpTransferConfirmed: r.erp_transfer_confirmed,
           erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
           erpTransferConfirmedBy: r.erp_transfer_confirmed_by,
+          erpTransferIssued: r.erp_transfer_confirmed,
+          erpTransferIssuedAt: r.erp_transfer_confirmed_at,
+          erpTransferIssuedBy: r.erp_transfer_confirmed_by,
+          erpTransferReceived: r.erp_transfer_received,
+          erpTransferReceivedAt: r.erp_transfer_received_at,
+          erpTransferReceivedBy: r.erp_transfer_received_by,
+          erpReceiveRequested: Boolean(r.erp_receive_requested_at),
+          erpReceiveRequestedAt: r.erp_receive_requested_at,
+          erpReceiveRequestedBy: r.erp_receive_requested_by,
+          cancelledAt: r.cancelled_at,
+          cancelledBy: r.cancelled_by,
+          cancellationStatus: r.cancellation_status,
+          cancellationReason: r.cancellation_reason,
           resolutionConfirmed: r.resolution_confirmed,
           hasLabel: r.has_label,
           requestedAt: r.requested_at,
@@ -254,7 +363,11 @@ router.get('/:id', async (req, res, next) => {
     const { id } = req.params;
     const { rows } = await pool.query(
       `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
-              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by, r.requested_at, r.status, r.source,
+              r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
+              r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
+              r.erp_receive_requested_at, r.erp_receive_requested_by,
+              r.cancelled_at, r.cancelled_by, r.cancellation_status, r.cancellation_reason,
+              r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
               sr.id AS rep_id, sr.name AS rep_name
@@ -285,6 +398,19 @@ router.get('/:id', async (req, res, next) => {
       erpTransferConfirmed: request.erp_transfer_confirmed,
       erpTransferConfirmedAt: request.erp_transfer_confirmed_at,
       erpTransferConfirmedBy: request.erp_transfer_confirmed_by,
+      erpTransferIssued: request.erp_transfer_confirmed,
+      erpTransferIssuedAt: request.erp_transfer_confirmed_at,
+      erpTransferIssuedBy: request.erp_transfer_confirmed_by,
+      erpTransferReceived: request.erp_transfer_received,
+      erpTransferReceivedAt: request.erp_transfer_received_at,
+      erpTransferReceivedBy: request.erp_transfer_received_by,
+      erpReceiveRequested: Boolean(request.erp_receive_requested_at),
+      erpReceiveRequestedAt: request.erp_receive_requested_at,
+      erpReceiveRequestedBy: request.erp_receive_requested_by,
+      cancelledAt: request.cancelled_at,
+      cancelledBy: request.cancelled_by,
+      cancellationStatus: request.cancellation_status,
+      cancellationReason: request.cancellation_reason,
       resolutionConfirmed: request.resolution_confirmed,
       hasLabel: request.has_label,
       requestedAt: request.requested_at,
@@ -327,8 +453,10 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       return res.status(400).json({ error: 'Your sales rep profile is missing a branch' });
     }
     const creation = await withTransaction(pool, async (client) => {
-      const stockByKey = await loadLockedRequestStock(client, normalizedStones);
-      validateRequestStock(normalizedStones, stockByKey);
+      const {
+        stockByKey,
+        authorizationIds,
+      } = await authorizeLockedRequestStock(client, normalizedStones, salesRepId);
 
       const homeBranch = homeBranchForStock(normalizedStones.map((stone) => ({
         barcode: stone.barcode,
@@ -389,6 +517,11 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, paperworkType, deliveryRoute ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress]
       );
       const newRequestId = reqRows[0].id;
+      await consumeAvailabilityAuthorizations(
+        client,
+        authorizationIds,
+        newRequestId
+      );
 
       for (const stone of normalizedStones) {
         await client.query(
@@ -402,7 +535,11 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         fromBranch: fulfillmentBranch,
         toBranch: deliveryBranch,
         actorId: req.user.id,
-        details: { deliveryRoute, requestType },
+        details: {
+          deliveryRoute,
+          requestType,
+          liveErpRecheckAuthorizationIds: authorizationIds,
+        },
       });
       return {
         requestId: newRequestId,
@@ -604,7 +741,7 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const result = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
-        `SELECT branch, fulfillment_branch, cross_branch, delivery_route, transfer_status, request_scope
+        `SELECT branch, fulfillment_branch, cross_branch, delivery_route, transfer_status, request_scope, status
          FROM requests WHERE id = $1 FOR UPDATE`, [id]
       );
       if (!rows[0]) { const err = new Error('Request not found'); err.status = 404; throw err; }
@@ -632,6 +769,9 @@ router.get('/by-rep/:repId', async (req, res, next) => {
     const { rows: requests } = await pool.query(
       `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status,
               erp_transfer_confirmed, erp_transfer_confirmed_at, erp_transfer_confirmed_by,
+              erp_transfer_received, erp_transfer_received_at, erp_transfer_received_by,
+              erp_receive_requested_at, erp_receive_requested_by,
+              cancelled_at, cancelled_by, cancellation_status, cancellation_reason,
               requested_at, status, request_scope, request_type, dropoff_company, dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = requests.id) AS has_label FROM requests
        WHERE sales_rep_id = $1 ORDER BY requested_at DESC`,
@@ -652,6 +792,19 @@ router.get('/by-rep/:repId', async (req, res, next) => {
           erpTransferConfirmed: r.erp_transfer_confirmed,
           erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
           erpTransferConfirmedBy: r.erp_transfer_confirmed_by,
+          erpTransferIssued: r.erp_transfer_confirmed,
+          erpTransferIssuedAt: r.erp_transfer_confirmed_at,
+          erpTransferIssuedBy: r.erp_transfer_confirmed_by,
+          erpTransferReceived: r.erp_transfer_received,
+          erpTransferReceivedAt: r.erp_transfer_received_at,
+          erpTransferReceivedBy: r.erp_transfer_received_by,
+          erpReceiveRequested: Boolean(r.erp_receive_requested_at),
+          erpReceiveRequestedAt: r.erp_receive_requested_at,
+          erpReceiveRequestedBy: r.erp_receive_requested_by,
+          cancelledAt: r.cancelled_at,
+          cancelledBy: r.cancelled_by,
+          cancellationStatus: r.cancellation_status,
+          cancellationReason: r.cancellation_reason,
           hasLabel: r.has_label,
           requestedAt: r.requested_at,
           status: r.status,

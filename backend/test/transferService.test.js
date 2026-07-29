@@ -45,6 +45,20 @@ test('an internal transfer reaches the rep only in strict branch order', () => {
   assert.throws(() => getTransferAction({ route: 'internal_transfer', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'NY', action: 'receive' }), /not allowed/);
 });
 
+test('physical office movement does not wait for destination ERP BT receipt', () => {
+  assert.equal(getTransferAction({
+    route: 'internal_transfer',
+    status: 'awaiting_source',
+    sourceBranch: 'LA',
+    destinationBranch: 'NY',
+    actorBranch: 'LA',
+    action: 'pack',
+    requiresErpTransfer: true,
+    erpTransferConfirmed: true,
+    erpTransferReceived: false,
+  }), 'packed');
+});
+
 test('direct customer shipment requires the supplying branch and a label', () => {
   assert.throws(() => getTransferAction({ route: 'customer_ship', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'ship_customer', hasLabel: false }), /shipping label/);
   assert.throws(() => getTransferAction({ route: 'customer_ship', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'ship_customer', hasLabel: true, paperworkType: 'pending' }), /paperwork decision/);

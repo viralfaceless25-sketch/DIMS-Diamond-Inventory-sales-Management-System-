@@ -42,6 +42,7 @@ test('holder maps are scoped to the supplying branch, not the rep branch', async
   assert.equal(laHolders.get('LA-001')[0].repName, 'New York Rep');
   assert.equal(nyHolders.has('LA-001'), false);
   assert.match(calls[0].sql, /COALESCE\(r\.fulfillment_branch, r\.branch\)/);
+  assert.match(calls[0].sql, /r\.status <> 'cancelled'/);
 });
 
 test('visible-page holder lookup uses the same supplying-branch scope', async () => {
@@ -55,4 +56,5 @@ test('visible-page holder lookup uses the same supplying-branch scope', async ()
   assert.equal(holders.get('LA-001')[0].requestId, 42);
   assert.deepEqual(calls[0].params[0], ['LA-001']);
   assert.match(calls[0].sql, /COALESCE\(r\.fulfillment_branch, r\.branch\)/);
+  assert.match(calls[0].sql, /r\.status <> 'cancelled'/);
 });

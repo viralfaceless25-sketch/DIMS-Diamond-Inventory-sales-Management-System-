@@ -61,12 +61,18 @@ ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS length_mm NUMERIC(8,2);
 ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS width_mm NUMERIC(8,2);
 ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS height_mm NUMERIC(8,2);
 ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS lw_ratio NUMERIC(6,3);
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS snapshot_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE loose_diamonds ADD COLUMN IF NOT EXISTS snapshot_missing_since TIMESTAMPTZ;
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS stock_status TEXT NOT NULL DEFAULT 'available';
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS img_link TEXT;
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS video_link TEXT;
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS ref_no TEXT;
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS gross_weight NUMERIC(8,2);
 ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS diamond_size TEXT;
+ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS snapshot_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE jewelry_pieces ADD COLUMN IF NOT EXISTS snapshot_missing_since TIMESTAMPTZ;
 
 -- A batch of stones requested by a sales rep in one go
 CREATE TABLE IF NOT EXISTS requests (
@@ -95,6 +101,12 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS transfer_status TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_status TEXT;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
 
 -- One row per stone inside a request batch
 CREATE TABLE IF NOT EXISTS request_stones (
@@ -119,6 +131,8 @@ CREATE INDEX IF NOT EXISTS idx_requests_delivery_branch ON requests(delivery_bra
 CREATE INDEX IF NOT EXISTS idx_requests_cross_branch_status ON requests(cross_branch, transfer_status);
 CREATE INDEX IF NOT EXISTS idx_loose_branch ON loose_diamonds(branch);
 CREATE INDEX IF NOT EXISTS idx_jewelry_branch ON jewelry_pieces(branch);
+CREATE INDEX IF NOT EXISTS idx_loose_active_branch ON loose_diamonds(snapshot_active, branch);
+CREATE INDEX IF NOT EXISTS idx_jewelry_active_branch ON jewelry_pieces(snapshot_active, branch);
 
 -- Seed branches (idempotent)
 INSERT INTO branches (id, name) VALUES
@@ -157,6 +171,37 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAU
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id);
+
+CREATE TABLE IF NOT EXISTS stock_recheck_requests (
+  id                  BIGSERIAL PRIMARY KEY,
+  sales_rep_id        INTEGER NOT NULL REFERENCES sales_reps(id),
+  barcode             TEXT NOT NULL,
+  item_type           TEXT NOT NULL CHECK (item_type IN ('loose', 'jewelry')),
+  home_branch         TEXT NOT NULL REFERENCES branches(id),
+  snapshot_status     TEXT,
+  snapshot_active     BOOLEAN NOT NULL,
+  snapshot_last_seen_at TIMESTAMPTZ,
+  state               TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (state IN ('pending', 'verified_available', 'verified_unavailable', 'consumed', 'cancelled')),
+  verified_status     TEXT,
+  note                TEXT,
+  requested_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  verified_at         TIMESTAMPTZ,
+  verified_by         INTEGER REFERENCES users(id),
+  consumed_at         TIMESTAMPTZ,
+  consumed_request_id INTEGER REFERENCES requests(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_recheck_one_pending
+  ON stock_recheck_requests(sales_rep_id, item_type, barcode)
+  WHERE state = 'pending';
+CREATE INDEX IF NOT EXISTS idx_stock_recheck_home_queue
+  ON stock_recheck_requests(home_branch, state, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_recheck_rep_history
+  ON stock_recheck_requests(sales_rep_id, requested_at DESC);
 
 CREATE TABLE IF NOT EXISTS request_shipping_labels (
   request_id INTEGER PRIMARY KEY REFERENCES requests(id) ON DELETE CASCADE,

@@ -25,6 +25,7 @@ async function getHoldersMap(branch, queryable = pool) {
      JOIN requests r ON r.id = rs.request_id
      JOIN sales_reps sr ON sr.id = r.sales_rep_id
      WHERE rs.returned = false
+       AND r.status <> 'cancelled'
      ${branchFilter}`,
     params
   );
@@ -60,7 +61,9 @@ async function getHoldersForBarcodes(branch, barcodes, queryable = pool) {
      FROM request_stones rs
      JOIN requests r ON r.id = rs.request_id
      JOIN sales_reps sr ON sr.id = r.sales_rep_id
-     WHERE rs.returned = false AND rs.barcode = ANY($1)
+     WHERE rs.returned = false
+       AND r.status <> 'cancelled'
+       AND rs.barcode = ANY($1)
      ${branchFilter}`,
     params
   );

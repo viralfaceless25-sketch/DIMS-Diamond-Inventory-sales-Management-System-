@@ -1,6 +1,10 @@
 const MOVEMENT_LABELS = Object.freeze({
   requested: 'Requested',
   erp_transfer_recorded: 'ERP branch transfer recorded',
+  erp_transfer_issued: 'ERP BT issued',
+  erp_receive_requested: 'ERP BT receipt requested',
+  erp_transfer_received: 'ERP BT received',
+  erp_transfer_rejected: 'ERP BT rejected',
   packed_at_source: 'Packed at source',
   branch_transfer_sent: 'Branch transfer sent',
   branch_transfer_received: 'Branch transfer received',

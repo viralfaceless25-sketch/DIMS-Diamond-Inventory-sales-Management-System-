@@ -64,3 +64,15 @@ test('cross-branch request mutations retain route and status ownership', () => {
     /Only supplying inventory/
   );
 });
+
+test('cancelled requests cannot be mutated by any inventory branch', () => {
+  assert.throws(() => assertInventoryRequestMutation({
+    request: {
+      status: 'cancelled',
+      cross_branch: false,
+      fulfillment_branch: 'NY',
+      branch: 'NY',
+    },
+    actorBranch: 'NY',
+  }), /cancelled request/);
+});

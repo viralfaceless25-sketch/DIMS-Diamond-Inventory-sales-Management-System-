@@ -3,6 +3,10 @@ const {
   normalizeStockStatus,
   stockStatusLabel,
 } = require('./stockStatus');
+const {
+  isAvailabilityAuthorizationUsable,
+  loadLockedAvailabilityAuthorizations,
+} = require('./stockRecheckService');
 
 function requestError(status, message, blocked) {
   const error = new Error(message);
@@ -43,7 +47,8 @@ function normalizeRequestedStones(stones) {
 async function lockStockTable(client, table, itemType, barcodes) {
   if (!barcodes.length) return [];
   const { rows } = await client.query(
-    `SELECT barcode, branch, stock_status, '${itemType}' AS item_type
+    `SELECT barcode, branch, stock_status, snapshot_active, last_seen_at,
+            snapshot_missing_since, '${itemType}' AS item_type
      FROM ${table}
      WHERE barcode = ANY($1)
      ORDER BY barcode FOR UPDATE`,
@@ -69,16 +74,37 @@ async function loadLockedRequestStock(client, stones) {
   return new Map(rows.map((row) => [`${row.item_type}:${row.barcode}`, row]));
 }
 
-function validateRequestStock(stones, stockByKey) {
+function validateRequestStock(stones, stockByKey, {
+  authorizationsByKey = new Map(),
+  salesRepId = null,
+} = {}) {
   const blocked = [];
+  const authorizationIds = [];
   for (const stone of stones) {
-    const stock = stockByKey.get(`${stone.itemType}:${stone.barcode}`);
+    const key = `${stone.itemType}:${stone.barcode}`;
+    const stock = stockByKey.get(key);
     if (!stock) {
       blocked.push(`${stone.barcode} is not in stock`);
       continue;
     }
     const status = normalizeStockStatus(stock.stock_status);
-    if (!isRequestableStockStatus(status)) {
+    const normallyRequestable = stock.snapshot_active !== false
+      && isRequestableStockStatus(status);
+    if (normallyRequestable) continue;
+
+    const authorization = authorizationsByKey.get(key);
+    if (isAvailabilityAuthorizationUsable({
+      authorization,
+      stock,
+      stone,
+      salesRepId,
+    })) {
+      authorizationIds.push(authorization.id);
+      continue;
+    }
+    if (stock.snapshot_active === false) {
+      blocked.push(`${stone.barcode} is Not in latest ERP snapshot`);
+    } else {
       blocked.push(`${stone.barcode} is ${stockStatusLabel(status)}`);
     }
   }
@@ -87,9 +113,25 @@ function validateRequestStock(stones, stockByKey) {
     const summary = `${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`;
     throw requestError(409, `Request blocked: ${summary}`, blocked);
   }
+  return authorizationIds;
+}
+
+async function authorizeLockedRequestStock(client, stones, salesRepId) {
+  const stockByKey = await loadLockedRequestStock(client, stones);
+  const authorizationsByKey = await loadLockedAvailabilityAuthorizations(
+    client,
+    salesRepId,
+    stones
+  );
+  const authorizationIds = validateRequestStock(stones, stockByKey, {
+    authorizationsByKey,
+    salesRepId,
+  });
+  return { stockByKey, authorizationIds };
 }
 
 module.exports = {
+  authorizeLockedRequestStock,
   normalizeRequestedStones,
   loadLockedRequestStock,
   validateRequestStock,

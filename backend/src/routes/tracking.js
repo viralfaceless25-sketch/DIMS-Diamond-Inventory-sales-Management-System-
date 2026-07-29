@@ -2,7 +2,12 @@ const express = require('express');
 const pool = require('../db/pool');
 const { computeStoneTrackingStatus } = require('../services/statusService');
 const { movementLabel } = require('../services/movementService');
-const { normalizeStockStatus, stockStatusLabel } = require('../services/stockStatus');
+const {
+  buildTrackingSnapshotPresentation,
+} = require('../services/stockSnapshotService');
+const {
+  buildRequestAvailabilityVerification,
+} = require('../services/stockRecheckService');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -98,6 +103,17 @@ router.get('/', async (req, res, next) => {
       JOIN sales_reps sr ON sr.id = r.sales_rep_id
       LEFT JOIN loose_diamonds ld ON ld.barcode = rs.barcode AND rs.item_type = 'loose'
       LEFT JOIN jewelry_pieces jp ON jp.barcode = rs.barcode AND rs.item_type = 'jewelry'
+      LEFT JOIN LATERAL (
+        SELECT rr.id, rr.snapshot_status, rr.snapshot_active,
+               rr.snapshot_last_seen_at, rr.verified_at, rr.verified_by
+        FROM stock_recheck_requests rr
+        WHERE rr.consumed_request_id = r.id
+          AND rr.barcode = rs.barcode
+          AND rr.item_type = rs.item_type
+        ORDER BY rr.consumed_at DESC, rr.id DESC
+        LIMIT 1
+      ) consumed_recheck ON true
+      LEFT JOIN users recheck_verifier ON recheck_verifier.id = consumed_recheck.verified_by
     `;
 
     const totalResult = await pool.query(
@@ -113,9 +129,23 @@ router.get('/', async (req, res, next) => {
          r.id AS request_id, r.branch, r.fulfillment_branch, r.delivery_branch,
          r.cross_branch, r.delivery_route, r.transfer_status, r.request_type,
          r.status AS request_status, r.requested_at,
+         r.cancelled_at, r.cancelled_by, r.cancellation_status, r.cancellation_reason,
+         r.erp_transfer_confirmed, r.erp_transfer_confirmed_at,
+         r.erp_transfer_received, r.erp_transfer_received_at,
          sr.name AS rep_name,
          COALESCE(ld.branch, jp.branch, r.fulfillment_branch, r.branch) AS current_branch,
-         COALESCE(ld.stock_status, jp.stock_status, 'available') AS current_stock_status,
+         COALESCE(ld.branch, jp.branch) AS snapshot_branch,
+         COALESCE(ld.stock_status, jp.stock_status) AS snapshot_stock_status,
+         COALESCE(ld.snapshot_active, jp.snapshot_active, false) AS snapshot_active,
+         COALESCE(ld.last_seen_at, jp.last_seen_at) AS snapshot_last_seen_at,
+         COALESCE(ld.snapshot_missing_since, jp.snapshot_missing_since) AS snapshot_missing_since,
+         consumed_recheck.id AS live_recheck_id,
+         consumed_recheck.snapshot_status AS live_recheck_snapshot_status,
+         consumed_recheck.snapshot_active AS live_recheck_snapshot_active,
+         consumed_recheck.snapshot_last_seen_at AS live_recheck_snapshot_last_seen_at,
+         consumed_recheck.verified_at AS live_recheck_verified_at,
+         consumed_recheck.verified_by AS live_recheck_verified_by,
+         recheck_verifier.email AS live_recheck_verifier_email,
          COALESCE(ld.certificate_no, jp.cert_no) AS cert_no,
          ld.lab, ld.shape, ld.carat, ld.color, ld.clarity,
          jp.category, jp.item, jp.diamond_cts
@@ -163,11 +193,29 @@ router.get('/', async (req, res, next) => {
       const recordedTypes = new Set(movements.map((event) => event.movementType));
       const completeMovements = [...movements, ...legacyMovements(row, recordedTypes)]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      const normalizedStatus = normalizeStockStatus(row.current_stock_status);
+      const snapshotPresentation = buildTrackingSnapshotPresentation({
+        request: {
+          crossBranch: row.cross_branch,
+          fulfillmentBranch: row.fulfillment_branch || row.branch,
+          deliveryBranch: row.delivery_branch || row.branch,
+          erpTransferIssuedAt: row.erp_transfer_confirmed_at,
+          erpTransferReceivedAt: row.erp_transfer_received_at,
+        },
+        stock: {
+          snapshotActive: row.snapshot_active,
+          branch: row.snapshot_branch,
+          stockStatus: row.snapshot_stock_status,
+          lastSeenAt: row.snapshot_last_seen_at,
+          snapshotMissingSince: row.snapshot_missing_since,
+        },
+      });
       return {
         ...row,
-        current_stock_status: normalizedStatus,
-        currentStockStatusLabel: stockStatusLabel(normalizedStatus),
+        current_stock_status: snapshotPresentation.currentStockStatus,
+        currentStockStatusLabel: snapshotPresentation.currentStockStatusLabel,
+        snapshot: snapshotPresentation.snapshot,
+        snapshotReconciliation: snapshotPresentation.snapshotReconciliation,
+        liveErpVerification: buildRequestAvailabilityVerification(row),
         trackingStatus: computeStoneTrackingStatus(row),
         movements: completeMovements,
       };

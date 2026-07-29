@@ -4,6 +4,10 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { withTransaction } = require('../db/withRetry');
 const { getTransferAction } = require('../services/transferService');
+const {
+  assertErpTransferAction,
+  buildErpUnavailableResolution,
+} = require('../services/erpTransferService');
 const { writeAudit } = require('../services/auditService');
 const {
   movementForTransferAction,
@@ -32,7 +36,11 @@ async function getTransfer(requestId) {
   const { rows } = await pool.query(
     `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
             r.cross_branch, r.delivery_route, r.transfer_status, r.request_type,
-            r.dropoff_company, r.dropoff_address, r.paperwork_type, r.erp_transfer_confirmed,
+            r.dropoff_company, r.dropoff_address, r.paperwork_type,
+            r.erp_transfer_confirmed, r.erp_transfer_confirmed_at,
+            r.erp_transfer_received, r.erp_transfer_received_at,
+            r.erp_receive_requested_at,
+            r.cancelled_at, r.cancelled_by, r.cancellation_status, r.cancellation_reason,
             EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
      FROM requests r WHERE r.id = $1`, [requestId]
   );
@@ -73,7 +81,7 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
       const { rows } = await client.query(
         `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
                 r.cross_branch, r.delivery_route, r.transfer_status, r.request_scope, r.resolution_confirmed, r.paperwork_type,
-                r.erp_transfer_confirmed,
+                r.erp_transfer_confirmed, r.erp_transfer_received,
                 EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
          FROM requests r WHERE r.id = $1 FOR UPDATE`, [requestId]
       );
@@ -122,8 +130,10 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
 
     const result = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
-        `SELECT id, cross_branch, fulfillment_branch, COALESCE(delivery_branch, branch) AS destination_branch,
-                erp_transfer_confirmed, transfer_status
+        `SELECT id, sales_rep_id, branch, cross_branch, fulfillment_branch,
+                COALESCE(delivery_branch, branch) AS delivery_branch,
+                COALESCE(delivery_branch, branch) AS destination_branch,
+                erp_transfer_confirmed, erp_transfer_received, transfer_status, status
          FROM requests WHERE id = $1 FOR UPDATE`,
         [requestId]
       );
@@ -131,14 +141,14 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
       if (!transfer) {
         const error = new Error('Request not found'); error.status = 404; throw error;
       }
-      if (!transfer.cross_branch) {
-        const error = new Error('An ERP branch transfer is only required for cross-branch requests'); error.status = 400; throw error;
-      }
-      if (actorBranch !== transfer.fulfillment_branch) {
-        const error = new Error(`Only the supplying branch (${transfer.fulfillment_branch}) can confirm the ERP branch transfer`); error.status = 403; throw error;
-      }
+      assertErpTransferAction({
+        request: transfer,
+        actorRole: req.user.role,
+        actorBranch,
+        action: 'issue',
+      });
       if (!['awaiting_source', null].includes(transfer.transfer_status)) {
-        const error = new Error('The ERP branch transfer must be confirmed before packing'); error.status = 409; throw error;
+        const error = new Error('ERP BT issue must be confirmed before packing'); error.status = 409; throw error;
       }
       if (!transfer.erp_transfer_confirmed) {
         await client.query(
@@ -148,26 +158,262 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
           [requestId, req.user.id]
         );
         await recordRequestMovement(client, requestId, {
-          movementType: 'erp_transfer_recorded',
+          movementType: 'erp_transfer_issued',
           fromBranch: transfer.fulfillment_branch,
           toBranch: transfer.destination_branch,
           actorId: req.user.id,
         });
       }
-      return { ...transfer, erpTransferConfirmed: true };
+      return {
+        ...transfer,
+        erpTransferConfirmed: true,
+        erpTransferIssued: true,
+      };
     });
 
     await writeAudit({
       actorId: req.user.id,
-      action: 'transfer.erp_branch_transfer_confirmed',
+      action: 'transfer.erp_bt_issued',
       targetType: 'request',
       targetId: requestId,
       ip: req.ip,
       details: { sourceBranch: result.fulfillment_branch, destinationBranch: result.destination_branch },
     });
-    broadcast(result.fulfillment_branch, 'transfer:updated', { requestId, erpTransferConfirmed: true });
-    broadcast(result.destination_branch, 'transfer:updated', { requestId, erpTransferConfirmed: true });
-    res.json({ id: requestId, erpTransferConfirmed: true });
+    const event = {
+      requestId,
+      erpTransferConfirmed: true,
+      erpTransferIssued: true,
+    };
+    broadcast(result.fulfillment_branch, 'transfer:updated', event);
+    broadcast(result.destination_branch, 'transfer:updated', event);
+    res.json({
+      id: requestId,
+      erpTransferConfirmed: true,
+      erpTransferIssued: true,
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.patch('/:id/erp-unavailable', requireRole('inventory'), async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) {
+      return res.status(400).json({ error: 'Valid request is required' });
+    }
+    const actorBranch = await inventoryBranch(req.user.id);
+    if (!actorBranch) {
+      return res.status(403).json({ error: 'Your inventory account is missing a branch' });
+    }
+    const resolution = buildErpUnavailableResolution(req.body);
+
+    const result = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, sales_rep_id, branch, cross_branch, fulfillment_branch,
+                COALESCE(delivery_branch, branch) AS delivery_branch,
+                COALESCE(delivery_branch, branch) AS destination_branch,
+                erp_transfer_confirmed, transfer_status, status
+         FROM requests
+         WHERE id = $1
+         FOR UPDATE`,
+        [requestId]
+      );
+      const transfer = rows[0];
+      if (!transfer) {
+        const error = new Error('Request not found'); error.status = 404; throw error;
+      }
+      assertErpTransferAction({
+        request: transfer,
+        actorRole: req.user.role,
+        actorBranch,
+        action: 'reject_unavailable',
+      });
+      if (!['awaiting_source', null].includes(transfer.transfer_status)) {
+        const error = new Error('Only a request awaiting source ERP action can be rejected');
+        error.status = 409;
+        throw error;
+      }
+      await client.query(
+        `UPDATE requests
+         SET status = 'cancelled', transfer_status = 'cancelled',
+             cancelled_at = now(), cancelled_by = $2,
+             cancellation_status = $3, cancellation_reason = $4
+         WHERE id = $1`,
+        [
+          requestId,
+          req.user.id,
+          resolution.liveStatus,
+          resolution.reason,
+        ]
+      );
+      await recordRequestMovement(client, requestId, {
+        movementType: 'erp_transfer_rejected',
+        fromBranch: transfer.fulfillment_branch,
+        toBranch: transfer.destination_branch,
+        actorId: req.user.id,
+        details: {
+          liveStatus: resolution.liveStatus,
+          reason: resolution.reason,
+        },
+      });
+      return transfer;
+    });
+
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'transfer.erp_bt_rejected',
+      targetType: 'request',
+      targetId: requestId,
+      ip: req.ip,
+      details: {
+        sourceBranch: result.fulfillment_branch,
+        destinationBranch: result.destination_branch,
+        ...resolution,
+      },
+    });
+    const event = {
+      requestId,
+      status: 'cancelled',
+      transferStatus: 'cancelled',
+      cancellationStatus: resolution.liveStatus,
+      cancellationReason: resolution.reason,
+    };
+    broadcast(result.fulfillment_branch, 'transfer:updated', event);
+    broadcast(result.destination_branch, 'transfer:updated', event);
+    res.json({ id: requestId, ...event });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.patch('/:id/request-erp-receive', requireRole('sales_rep'), async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) {
+      return res.status(400).json({ error: 'Valid request is required' });
+    }
+
+    const result = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, sales_rep_id, branch, cross_branch, fulfillment_branch,
+                COALESCE(delivery_branch, branch) AS delivery_branch,
+                COALESCE(delivery_branch, branch) AS destination_branch,
+                erp_transfer_confirmed, erp_transfer_received, status,
+                erp_receive_requested_at
+         FROM requests WHERE id = $1 FOR UPDATE`,
+        [requestId]
+      );
+      const transfer = rows[0];
+      if (!transfer) {
+        const error = new Error('Request not found'); error.status = 404; throw error;
+      }
+      assertErpTransferAction({
+        request: transfer,
+        actorRole: req.user.role,
+        actorSalesRepId: req.user.salesRepId,
+        action: 'request_receive',
+      });
+
+      if (!transfer.erp_receive_requested_at && !transfer.erp_transfer_received) {
+        await client.query(
+          `UPDATE requests
+           SET erp_receive_requested_at = now(), erp_receive_requested_by = $2
+           WHERE id = $1`,
+          [requestId, req.user.id]
+        );
+        await recordRequestMovement(client, requestId, {
+          movementType: 'erp_receive_requested',
+          fromBranch: transfer.fulfillment_branch,
+          toBranch: transfer.destination_branch,
+          actorId: req.user.id,
+        });
+      }
+      return transfer;
+    });
+
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'transfer.erp_bt_receive_requested',
+      targetType: 'request',
+      targetId: requestId,
+      ip: req.ip,
+      details: { destinationBranch: result.destination_branch },
+    });
+    const event = { requestId, erpReceiveRequested: true };
+    broadcast(result.fulfillment_branch, 'transfer:updated', event);
+    broadcast(result.destination_branch, 'transfer:updated', event);
+    res.json({ id: requestId, erpReceiveRequested: true });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.patch('/:id/erp-received', requireRole('inventory'), async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) {
+      return res.status(400).json({ error: 'Valid request is required' });
+    }
+    const actorBranch = await inventoryBranch(req.user.id);
+    if (!actorBranch) {
+      return res.status(403).json({ error: 'Your inventory account is missing a branch' });
+    }
+
+    const result = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, sales_rep_id, branch, cross_branch, fulfillment_branch,
+                COALESCE(delivery_branch, branch) AS delivery_branch,
+                COALESCE(delivery_branch, branch) AS destination_branch,
+                erp_transfer_confirmed, erp_transfer_received, transfer_status, status
+         FROM requests WHERE id = $1 FOR UPDATE`,
+        [requestId]
+      );
+      const transfer = rows[0];
+      if (!transfer) {
+        const error = new Error('Request not found'); error.status = 404; throw error;
+      }
+      assertErpTransferAction({
+        request: transfer,
+        actorRole: req.user.role,
+        actorBranch,
+        action: 'receive',
+      });
+
+      if (!transfer.erp_transfer_received) {
+        await client.query(
+          `UPDATE requests
+           SET erp_transfer_received = true,
+               erp_transfer_received_at = now(),
+               erp_transfer_received_by = $2
+           WHERE id = $1`,
+          [requestId, req.user.id]
+        );
+        await recordRequestMovement(client, requestId, {
+          movementType: 'erp_transfer_received',
+          fromBranch: transfer.fulfillment_branch,
+          toBranch: transfer.destination_branch,
+          actorId: req.user.id,
+        });
+      }
+      return transfer;
+    });
+
+    await writeAudit({
+      actorId: req.user.id,
+      action: 'transfer.erp_bt_received',
+      targetType: 'request',
+      targetId: requestId,
+      ip: req.ip,
+      details: { destinationBranch: result.destination_branch },
+    });
+    const event = { requestId, erpTransferReceived: true };
+    broadcast(result.fulfillment_branch, 'transfer:updated', event);
+    broadcast(result.destination_branch, 'transfer:updated', event);
+    res.json({ id: requestId, erpTransferReceived: true });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);

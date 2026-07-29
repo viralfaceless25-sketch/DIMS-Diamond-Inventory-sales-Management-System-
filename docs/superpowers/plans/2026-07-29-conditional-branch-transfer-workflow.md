@@ -10,7 +10,10 @@
 
 ## Global Constraints
 
-- Only `available` stock is requestable; On Memo, On Hold, and In Transit remain visible and blocked.
+- Only stock confirmed `available` by the current snapshot or a newer one-time
+  home-branch live ERP verification is requestable.
+- On Memo, On Hold, In Transit, unknown, and missing snapshot rows remain
+  blocked unless home-branch inventory performs that verification.
 - One request contains at most 50 unique items and exactly one ERP home branch.
 - The default BT destination is the authenticated sales rep's branch.
 - Every fulfillment choice supports `stone_and_cert`, `stone_only`, and `cert_only`.
@@ -271,7 +274,9 @@ git commit -m "feat: enforce conditional request routing"
 - Modify: `backend/src/routes/stock.js`
 - Modify: `backend/src/routes/requests.js`
 - Modify: `backend/src/routes/tracking.js`
+- Create: `backend/src/services/stockRecheckService.js`
 - Create: `backend/test/erpTransferService.test.js`
+- Create: `backend/test/stockRecheckService.test.js`
 - Create: `backend/test/stockSnapshotService.test.js`
 - Modify: `backend/test/requestStockService.test.js`
 - Modify: `backend/test/transferService.test.js`
@@ -280,6 +285,8 @@ git commit -m "feat: enforce conditional request routing"
 - Produces: `assertErpTransferAction({ request, actorBranch, actorRole, action })`
 - Produces: `deriveSnapshotReconciliation({ request, stock })`
 - Produces: `archiveBranchSnapshot(client, table, branch)`
+- Produces: one-time `stock_recheck_requests` authorization records
+- Produces: sales-rep and home-branch inventory stock-recheck APIs
 - Produces: `POST /api/transfers/:id/request-erp-receive`
 - Produces: `POST /api/transfers/:id/erp-received`
 - Reinterprets: existing `erp_transfer_confirmed` as ERP BT issued
@@ -447,7 +454,39 @@ last-seen time, and missing-since time. `deriveSnapshotReconciliation` returns:
 Operational cards use manual ERP events for the live timeline and display the
 snapshot result separately.
 
-- [ ] **Step 8: Run backend tests and commit**
+- [ ] **Step 8: Add the live ERP recheck authorization**
+
+Add `stock_recheck_requests` after the request/user tables exist. Each record
+stores barcode, item type, requesting rep, derived home branch, captured
+snapshot status/time, state, verified live status, verifier/time, optional
+note, and consumed request/time.
+
+Add sales-rep endpoints to request a recheck and list their own rechecks. Add
+inventory endpoints to list only the actor's home-branch queue and record
+`verified_available` or `verified_unavailable`. Derive the home branch from the
+preserved stock row; never accept it from the browser.
+
+Request creation locks the matching verification in the same database
+transaction as the stock row and active-holder check. A non-available or
+inactive snapshot row is accepted only when the verification:
+
+- belongs to the authenticated rep, exact barcode/item, and stored home branch;
+- is `verified_available` and unconsumed;
+- is newer than the row's `last_seen_at`;
+- is then marked consumed with the new request ID before commit.
+
+A successful later stock upload supersedes older verifications without
+rewriting them. Source inventory retains the final live ERP check before BT
+issue and can record a rejection/current status if availability changed again.
+
+- [ ] **Step 9: Add failing recheck security and concurrency tests**
+
+Prove that sales reps cannot verify, inventory from another branch cannot
+verify, verification does not rewrite snapshot facts, an expired or consumed
+authorization is rejected, and two concurrent submissions cannot consume one
+authorization.
+
+- [ ] **Step 10: Run backend tests and commit**
 
 Run:
 
@@ -463,7 +502,7 @@ Expected: all tests and syntax checks pass.
 Commit:
 
 ```powershell
-git add backend/src/db/schema.sql backend/src/services/erpTransferService.js backend/src/services/stockSnapshotService.js backend/src/services/requestStockService.js backend/src/services/transferService.js backend/src/routes/transfers.js backend/src/routes/stock.js backend/src/routes/requests.js backend/src/routes/tracking.js backend/test/erpTransferService.test.js backend/test/stockSnapshotService.test.js backend/test/requestStockService.test.js backend/test/transferService.test.js
+git add backend/src/db/schema.sql backend/src/services/erpTransferService.js backend/src/services/stockSnapshotService.js backend/src/services/stockRecheckService.js backend/src/services/requestStockService.js backend/src/services/transferService.js backend/src/routes/transfers.js backend/src/routes/stock.js backend/src/routes/requests.js backend/src/routes/tracking.js backend/test/erpTransferService.test.js backend/test/stockRecheckService.test.js backend/test/stockSnapshotService.test.js backend/test/requestStockService.test.js backend/test/transferService.test.js
 git commit -m "feat: separate ERP and physical movement"
 ```
 

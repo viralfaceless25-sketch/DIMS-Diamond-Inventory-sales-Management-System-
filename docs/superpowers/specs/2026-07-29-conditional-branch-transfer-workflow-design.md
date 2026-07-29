@@ -13,8 +13,12 @@ whole-system audit.
 - The uploaded stock list is authoritative only for the ERP snapshot captured
   when that file was generated. It is not treated as live ERP state.
 - One request may contain only stones from one home branch.
-- Only `available` stock is requestable. On Memo, On Hold, and In Transit remain
-  visible but blocked.
+- Only stock confirmed as `available` is requestable. The normal confirmation
+  is the latest Excel snapshot; a one-time home-branch inventory verification
+  may replace that snapshot confirmation when ERP changed later in the day.
+- On Memo, On Hold, In Transit, unknown, and missing rows remain blocked until
+  their ERP home branch verifies a live `available` state. A sales rep cannot
+  perform that verification.
 - An In Transit stone may be stale or absent in the once-daily file. Live
   request cards therefore track manually confirmed ERP BT events separately
   from the uploaded snapshot.
@@ -115,7 +119,8 @@ The backend:
 1. authenticates the sales rep and loads the rep branch;
 2. normalizes a maximum of 50 unique barcode/item pairs;
 3. locks the selected stock rows in deterministic order;
-4. verifies each row still exists and is requestable;
+4. verifies each row is either available in the current snapshot or has one
+   unconsumed live-ERP availability authorization for this rep and item;
 5. derives one home branch and rejects mixed-home-branch requests;
 6. validates that the fulfillment choice belongs to the local or BT choice set
    appropriate for the derived home branch;
@@ -196,6 +201,34 @@ card displays the snapshot as reconciled. A newer snapshot that contradicts
 the manually confirmed request state is flagged for inventory review rather
 than overwriting either record.
 
+## Live ERP recheck for same-day snapshot changes
+
+The daily snapshot can become stale before the next upload. For example, an LA
+stone can appear On Hold in the morning file, be released in Maitri ERP later,
+and then need a valid NY sales-rep request. The app must not silently change the
+Excel value and must not let the rep self-certify availability.
+
+For a blocked row, the sales rep can choose **Ask LA to recheck in ERP**. The
+home-branch inventory queue shows the barcode, snapshot status, snapshot time,
+requesting rep, and one-click Copy barcode. LA inventory checks Maitri ERP and
+records either:
+
+- **Verified available** — creates one authorization for that exact rep,
+  barcode, item type, and home branch; or
+- **Still unavailable** — records the current ERP status and optional note so
+  the rep sees why the request remains blocked.
+
+An available authorization is consumed atomically with request creation and
+cannot be reused. It is valid only while it is newer than the stock row's
+`last_seen_at`; the next successful stock upload supersedes it. It does not
+rewrite `stock_status`, `snapshot_active`, or snapshot timestamps. A request
+using the authorization retains both facts in its audit history: what the
+Excel snapshot said and which home-branch inventory user verified live ERP.
+
+Source inventory still performs the final live ERP check before confirming BT
+issue. If the stone became unavailable again, source inventory rejects the ERP
+BT action with the current status/reason; no transfer state is invented.
+
 ## Paperwork and shipping-label workflow
 
 Customer shipment requests created after this release use workflow version 2.
@@ -255,6 +288,7 @@ Each request shows:
 - transfer status;
 - separate ERP BT issued/received status when applicable;
 - latest ERP snapshot status and reconciliation warning when applicable;
+- live ERP recheck status and verification actor/time when applicable;
 - Step 1 paperwork status;
 - Step 2 label status;
 - drop-off address when applicable.
@@ -275,6 +309,7 @@ branch. The expanded request shows:
 - requested stone/cert scope;
 - source ERP BT issue and destination ERP BT receipt actions;
 - a visible sales-rep request for ERP BT receipt;
+- a home-branch live ERP recheck queue for stale blocked rows;
 - a separate physical-movement timeline;
 - drop-off address;
 - document readiness;
@@ -294,8 +329,9 @@ review screen provides an Add-to-cart action per home-branch group; it no longer
 sends a mixed-branch batch directly. The rep then uses the same conditional
 request panel as a manually selected stone.
 
-On Memo, On Hold, In Transit, unknown, and missing stones remain unavailable
-with their exact reason.
+On Memo, On Hold, In Transit, unknown, and missing stones show their exact
+snapshot reason and offer a home-branch recheck. They remain unavailable unless
+that inventory branch verifies live ERP availability.
 
 ## Audit corrections included
 
@@ -374,7 +410,13 @@ Automated coverage must prove:
 - simultaneous duplicate submission is serialized and rejected;
 - invoice results work across branches and remain grouped by home branch;
 - missing snapshot rows are archived, hidden from stock search, and blocked
-  from requests without losing movement-history metadata;
+  from normal requests without losing movement-history metadata;
+- stale blocked rows can be submitted only after home-branch inventory verifies
+  live ERP availability;
+- a live verification is rep/item/home-branch scoped, one-time, row-locked, and
+  superseded by the next stock snapshot;
+- a sales rep, another inventory branch, or a second concurrent request cannot
+  reuse or create that authorization;
 - manual ERP and physical states remain separate from stale Excel data;
 - later snapshots reconcile or flag, but never overwrite, manual events;
 - legacy workflow-version-1 requests remain actionable;
