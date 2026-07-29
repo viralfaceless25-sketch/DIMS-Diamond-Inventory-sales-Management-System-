@@ -107,6 +107,7 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_at TIMESTAMP
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_status TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS workflow_version INTEGER NOT NULL DEFAULT 1;
 
 -- One row per stone inside a request batch
 CREATE TABLE IF NOT EXISTS request_stones (
@@ -202,6 +203,16 @@ CREATE INDEX IF NOT EXISTS idx_stock_recheck_home_queue
   ON stock_recheck_requests(home_branch, state, requested_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_recheck_rep_history
   ON stock_recheck_requests(sales_rep_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS request_paperwork_files (
+  request_id    INTEGER PRIMARY KEY REFERENCES requests(id) ON DELETE CASCADE,
+  paperwork_type TEXT NOT NULL CHECK (paperwork_type IN ('invoice', 'memo')),
+  file_name     TEXT NOT NULL,
+  mime_type     TEXT NOT NULL,
+  file_data     BYTEA NOT NULL,
+  uploaded_by   INTEGER NOT NULL REFERENCES users(id),
+  uploaded_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS request_shipping_labels (
   request_id INTEGER PRIMARY KEY REFERENCES requests(id) ON DELETE CASCADE,

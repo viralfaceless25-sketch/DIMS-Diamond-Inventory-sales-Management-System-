@@ -8,22 +8,31 @@ const {
   assertErpTransferAction,
   buildErpUnavailableResolution,
 } = require('../services/erpTransferService');
+const {
+  assertDocumentAccess,
+  assertLabelUploadAllowed,
+  assertPaperworkUploadAllowed,
+} = require('../services/documentWorkflowService');
+const {
+  isSafeDocument,
+  safeDownloadName,
+} = require('../services/fileSecurity');
 const { writeAudit } = require('../services/auditService');
 const {
   movementForTransferAction,
   recordRequestMovement,
 } = require('../services/movementService');
 const { broadcast } = require('../sockets');
+const { createRateLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
-
-function safeLabel(buffer, mime) {
-  if (mime === 'application/pdf') return buffer.subarray(0, 4).toString('ascii') === '%PDF';
-  if (mime === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  return mime === 'image/jpeg' && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-}
+const documentUploadLimit = createRateLimit({
+  windowMs: 60 * 60_000,
+  max: 60,
+  key: (req) => `request-document:${req.user.id}`,
+});
 
 async function inventoryBranch(userId) {
   const { rows } = await pool.query(
@@ -32,17 +41,19 @@ async function inventoryBranch(userId) {
   return rows[0]?.branch || null;
 }
 
-async function getTransfer(requestId) {
-  const { rows } = await pool.query(
+async function getTransfer(requestId, queryable = pool, { forUpdate = false } = {}) {
+  const { rows } = await queryable.query(
     `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
             r.cross_branch, r.delivery_route, r.transfer_status, r.request_type,
-            r.dropoff_company, r.dropoff_address, r.paperwork_type,
+            r.dropoff_company, r.dropoff_address, r.paperwork_type, r.workflow_version,
             r.erp_transfer_confirmed, r.erp_transfer_confirmed_at,
             r.erp_transfer_received, r.erp_transfer_received_at,
             r.erp_receive_requested_at,
             r.cancelled_at, r.cancelled_by, r.cancellation_status, r.cancellation_reason,
-            EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
-     FROM requests r WHERE r.id = $1`, [requestId]
+            EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
+            EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = r.id) AS has_paperwork
+     FROM requests r WHERE r.id = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [requestId]
   );
   return rows[0] || null;
 }
@@ -80,9 +91,10 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
     const result = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
         `SELECT r.id, r.sales_rep_id, COALESCE(r.delivery_branch, r.branch) AS destination_branch, r.fulfillment_branch,
-                r.cross_branch, r.delivery_route, r.transfer_status, r.request_scope, r.resolution_confirmed, r.paperwork_type,
+                r.cross_branch, r.delivery_route, r.transfer_status, r.request_scope, r.resolution_confirmed, r.paperwork_type, r.workflow_version,
                 r.erp_transfer_confirmed, r.erp_transfer_received,
-                EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label
+                EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
+                EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = r.id) AS has_paperwork
          FROM requests r WHERE r.id = $1 FOR UPDATE`, [requestId]
       );
       const transfer = rows[0];
@@ -96,9 +108,11 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
       const nextStatus = getTransferAction({
         route: transfer.delivery_route, status: transfer.transfer_status || 'awaiting_source',
         sourceBranch: transfer.fulfillment_branch, destinationBranch: transfer.destination_branch,
-        actorBranch, action, hasLabel: transfer.has_label, paperworkType: transfer.paperwork_type,
+        actorBranch, action, hasLabel: transfer.has_label, hasPaperwork: transfer.has_paperwork,
+        paperworkType: transfer.paperwork_type, workflowVersion: transfer.workflow_version,
         requiresErpTransfer: transfer.cross_branch,
         erpTransferConfirmed: transfer.erp_transfer_confirmed,
+        erpTransferReceived: transfer.erp_transfer_received,
       });
       await client.query('UPDATE requests SET transfer_status = $2 WHERE id = $1', [requestId, nextStatus]);
       await recordRequestMovement(client, requestId, {
@@ -116,7 +130,14 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
     res.json(result);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
-    if (err.message?.includes('Only ') || err.message?.includes('not allowed') || err.message?.includes('shipping label') || err.message?.includes('ERP branch transfer')) return res.status(409).json({ error: err.message });
+    if (err.message?.includes('Only ')
+        || err.message?.includes('not allowed')
+        || err.message?.includes('shipping label')
+        || err.message?.includes('paperwork')
+        || err.message?.includes('received in ERP')
+        || err.message?.includes('ERP branch transfer')) {
+      return res.status(409).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -420,31 +441,140 @@ router.patch('/:id/erp-received', requireRole('inventory'), async (req, res, nex
   }
 });
 
-router.post('/:id/shipping-label', requireRole('sales_rep'), upload.single('label'), async (req, res, next) => {
-  try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId) || !req.file) return res.status(400).json({ error: 'A shipping label file is required' });
-    const allowed = new Set(['application/pdf', 'image/png', 'image/jpeg']);
-    if (!allowed.has(req.file.mimetype) || !safeLabel(req.file.buffer, req.file.mimetype)) {
-      return res.status(415).json({ error: 'Label must be a real PDF, PNG, or JPEG file' });
+router.post(
+  '/:id/paperwork',
+  requireRole('sales_rep'),
+  documentUploadLimit,
+  upload.single('paperwork'),
+  async (req, res, next) => {
+    try {
+      const requestId = Number(req.params.id);
+      const paperworkType = String(req.body?.paperworkType || '');
+      if (!Number.isInteger(requestId) || !req.file) {
+        return res.status(400).json({ error: 'An invoice or memo paperwork file is required' });
+      }
+      if (!['invoice', 'memo'].includes(paperworkType)) {
+        return res.status(400).json({ error: 'Choose Invoice or Memo for this paperwork' });
+      }
+      if (!isSafeDocument(req.file.buffer, req.file.mimetype)) {
+        return res.status(415).json({ error: 'Paperwork must be a real PDF, PNG, or JPEG file' });
+      }
+      const fileName = safeDownloadName(req.file.originalname, `${paperworkType}-paperwork`);
+      const transfer = await withTransaction(pool, async (client) => {
+        const locked = await getTransfer(requestId, client, { forUpdate: true });
+        assertPaperworkUploadAllowed({
+          transfer: locked,
+          salesRepId: req.user.salesRepId,
+        });
+        await client.query(
+          `INSERT INTO request_paperwork_files
+             (request_id, paperwork_type, file_name, mime_type, file_data, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (request_id) DO UPDATE
+           SET paperwork_type = EXCLUDED.paperwork_type,
+               file_name = EXCLUDED.file_name,
+               mime_type = EXCLUDED.mime_type,
+               file_data = EXCLUDED.file_data,
+               uploaded_by = EXCLUDED.uploaded_by,
+               uploaded_at = now()`,
+          [
+            requestId,
+            paperworkType,
+            fileName,
+            req.file.mimetype,
+            req.file.buffer,
+            req.user.id,
+          ]
+        );
+        await client.query(
+          'UPDATE requests SET paperwork_type = $2 WHERE id = $1',
+          [requestId, paperworkType]
+        );
+        return locked;
+      });
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.paperwork_file_uploaded',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: { paperworkType, fileName },
+      });
+      const event = {
+        requestId,
+        paperworkType,
+        hasPaperwork: true,
+        paperworkFileName: fileName,
+      };
+      broadcast(transfer.fulfillment_branch, 'transfer:updated', event);
+      broadcast(transfer.destination_branch, 'transfer:updated', event);
+      res.json({ ok: true, ...event });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
     }
-    const transfer = await getTransfer(requestId);
-    assertDeliveryWorkflow(transfer);
-    if (transfer.sales_rep_id !== req.user.salesRepId) return res.status(403).json({ error: 'You can only upload a label for your own request' });
-    if (transfer.delivery_route !== 'customer_ship') return res.status(400).json({ error: 'Shipping labels are only used for direct customer shipments' });
-    if (!['awaiting_source', 'packed'].includes(transfer.transfer_status || 'awaiting_source')) return res.status(409).json({ error: 'The label can no longer be changed after shipment' });
-    await pool.query(
-      `INSERT INTO request_shipping_labels (request_id, file_name, mime_type, file_data, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (request_id) DO UPDATE SET file_name = EXCLUDED.file_name, mime_type = EXCLUDED.mime_type,
-         file_data = EXCLUDED.file_data, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`,
-      [requestId, String(req.file.originalname || 'shipping-label').slice(0, 180), req.file.mimetype, req.file.buffer, req.user.id]
-    );
-    await writeAudit({ actorId: req.user.id, action: 'transfer.shipping_label_uploaded', targetType: 'request', targetId: requestId, ip: req.ip, details: { fileName: req.file.originalname } });
-    broadcast(transfer.fulfillment_branch, 'transfer:updated', { requestId, labelUploaded: true });
-    res.json({ ok: true, fileName: req.file.originalname });
-  } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); next(err); }
-});
+  }
+);
+
+router.post(
+  '/:id/shipping-label',
+  requireRole('sales_rep'),
+  documentUploadLimit,
+  upload.single('label'),
+  async (req, res, next) => {
+    try {
+      const requestId = Number(req.params.id);
+      if (!Number.isInteger(requestId) || !req.file) {
+        return res.status(400).json({ error: 'A shipping label file is required' });
+      }
+      if (!isSafeDocument(req.file.buffer, req.file.mimetype)) {
+        return res.status(415).json({ error: 'Label must be a real PDF, PNG, or JPEG file' });
+      }
+      const fileName = safeDownloadName(req.file.originalname, 'shipping-label');
+      const transfer = await withTransaction(pool, async (client) => {
+        const locked = await getTransfer(requestId, client, { forUpdate: true });
+        assertLabelUploadAllowed({
+          transfer: locked,
+          salesRepId: req.user.salesRepId,
+        });
+        await client.query(
+          `INSERT INTO request_shipping_labels
+             (request_id, file_name, mime_type, file_data, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (request_id) DO UPDATE
+           SET file_name = EXCLUDED.file_name,
+               mime_type = EXCLUDED.mime_type,
+               file_data = EXCLUDED.file_data,
+               uploaded_by = EXCLUDED.uploaded_by,
+               uploaded_at = now()`,
+          [
+            requestId,
+            fileName,
+            req.file.mimetype,
+            req.file.buffer,
+            req.user.id,
+          ]
+        );
+        return locked;
+      });
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.shipping_label_uploaded',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: { fileName },
+      });
+      const event = { requestId, hasLabel: true, labelFileName: fileName };
+      broadcast(transfer.fulfillment_branch, 'transfer:updated', event);
+      broadcast(transfer.destination_branch, 'transfer:updated', event);
+      res.json({ ok: true, ...event });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  }
+);
 
 router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) => {
   try {
@@ -455,6 +585,9 @@ router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) 
     }
     const transfer = await getTransfer(requestId);
     assertDeliveryWorkflow(transfer);
+    if (Number(transfer.workflow_version || 1) >= 2) {
+      return res.status(409).json({ error: 'Upload the actual invoice or memo file for this request' });
+    }
     if (transfer.sales_rep_id !== req.user.salesRepId) return res.status(403).json({ error: 'You can only update paperwork for your own request' });
     if (transfer.delivery_route !== 'customer_ship') return res.status(400).json({ error: 'Paperwork is only required for direct customer shipments' });
     if (!['awaiting_source', 'packed'].includes(transfer.transfer_status || 'awaiting_source')) return res.status(409).json({ error: 'Paperwork can no longer be changed after shipment' });
@@ -472,15 +605,55 @@ router.get('/:id/shipping-label', async (req, res, next) => {
     const transfer = await getTransfer(requestId);
     assertDeliveryWorkflow(transfer);
     const staffBranch = req.user.role === 'inventory' ? await inventoryBranch(req.user.id) : null;
-    const allowed = (req.user.role === 'sales_rep' && transfer.sales_rep_id === req.user.salesRepId)
-      || (req.user.role === 'inventory' && [transfer.fulfillment_branch, transfer.destination_branch].includes(staffBranch));
-    if (!allowed) return res.status(403).json({ error: 'You do not have access to this label' });
+    assertDocumentAccess({
+      transfer,
+      user: req.user,
+      inventoryBranch: staffBranch,
+    });
     const { rows } = await pool.query('SELECT file_name, mime_type, file_data FROM request_shipping_labels WHERE request_id = $1', [requestId]);
     if (!rows[0]) return res.status(404).json({ error: 'No shipping label uploaded yet' });
     res.setHeader('Content-Type', rows[0].mime_type);
-    res.setHeader('Content-Disposition', `inline; filename="${rows[0].file_name.replace(/[\\"]/g, '')}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${safeDownloadName(rows[0].file_name, 'shipping-label')}"`);
     res.send(rows[0].file_data);
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); next(err); }
+});
+
+router.get('/:id/paperwork', async (req, res, next) => {
+  try {
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) {
+      return res.status(400).json({ error: 'Valid request is required' });
+    }
+    const transfer = await getTransfer(requestId);
+    assertDeliveryWorkflow(transfer);
+    const staffBranch = req.user.role === 'inventory'
+      ? await inventoryBranch(req.user.id)
+      : null;
+    assertDocumentAccess({
+      transfer,
+      user: req.user,
+      inventoryBranch: staffBranch,
+    });
+    const { rows } = await pool.query(
+      `SELECT paperwork_type, file_name, mime_type, file_data
+       FROM request_paperwork_files
+       WHERE request_id = $1`,
+      [requestId]
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'No invoice or memo paperwork uploaded yet' });
+    }
+    res.setHeader('Content-Type', rows[0].mime_type);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${safeDownloadName(rows[0].file_name, 'paperwork')}"`
+    );
+    res.setHeader('X-Paperwork-Type', rows[0].paperwork_type);
+    res.send(rows[0].file_data);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
 });
 
 module.exports = router;

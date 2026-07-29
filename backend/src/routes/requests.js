@@ -268,7 +268,7 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows: requests } = await pool.query(
-      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
+      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.workflow_version, r.transfer_status, r.resolution_confirmed,
               r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
               r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
               r.erp_receive_requested_at, r.erp_receive_requested_by,
@@ -276,6 +276,7 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
               r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
+              EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = r.id) AS has_paperwork,
               sr.id AS rep_id, sr.name AS rep_name
        FROM requests r
        JOIN sales_reps sr ON sr.id = r.sales_rep_id
@@ -312,6 +313,7 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           crossBranch: r.cross_branch,
           deliveryRoute: r.delivery_route,
           paperworkType: r.paperwork_type,
+          workflowVersion: r.workflow_version,
           transferStatus: r.transfer_status,
           erpTransferConfirmed: r.erp_transfer_confirmed,
           erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
@@ -331,6 +333,7 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           cancellationReason: r.cancellation_reason,
           resolutionConfirmed: r.resolution_confirmed,
           hasLabel: r.has_label,
+          hasPaperwork: r.has_paperwork,
           requestedAt: r.requested_at,
           status: r.status,
           source: r.source,
@@ -362,7 +365,7 @@ router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rows } = await pool.query(
-      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.transfer_status, r.resolution_confirmed,
+      `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.workflow_version, r.transfer_status, r.resolution_confirmed,
               r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
               r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
               r.erp_receive_requested_at, r.erp_receive_requested_by,
@@ -370,6 +373,7 @@ router.get('/:id', async (req, res, next) => {
               r.requested_at, r.status, r.source,
               r.request_scope, r.request_type, r.dropoff_company, r.dropoff_address,
               EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = r.id) AS has_label,
+              EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = r.id) AS has_paperwork,
               sr.id AS rep_id, sr.name AS rep_name
        FROM requests r JOIN sales_reps sr ON sr.id = r.sales_rep_id
        WHERE r.id = $1`,
@@ -394,6 +398,7 @@ router.get('/:id', async (req, res, next) => {
       crossBranch: request.cross_branch,
       deliveryRoute: request.delivery_route,
       paperworkType: request.paperwork_type,
+      workflowVersion: request.workflow_version,
       transferStatus: request.transfer_status,
       erpTransferConfirmed: request.erp_transfer_confirmed,
       erpTransferConfirmedAt: request.erp_transfer_confirmed_at,
@@ -413,6 +418,7 @@ router.get('/:id', async (req, res, next) => {
       cancellationReason: request.cancellation_reason,
       resolutionConfirmed: request.resolution_confirmed,
       hasLabel: request.has_label,
+      hasPaperwork: request.has_paperwork,
       requestedAt: request.requested_at,
       status: request.status,
       source: request.source,
@@ -440,7 +446,6 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
     const requestedDeliveryRoute = ['internal_transfer', 'customer_ship', 'customer_dropoff'].includes(req.body.deliveryRoute)
       ? req.body.deliveryRoute
       : 'internal_transfer';
-    const paperworkType = ['none', 'pending', 'invoice', 'memo'].includes(req.body.paperworkType) ? req.body.paperworkType : 'none';
     const salesRepId = req.user.salesRepId;
     if (!salesRepId) {
       return res.status(400).json({ error: 'Your account is not linked to a sales rep profile' });
@@ -491,6 +496,7 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         error.status = 400;
         throw error;
       }
+      const paperworkType = deliveryRoute === 'customer_ship' ? 'pending' : 'none';
 
       const blocked = [];
       const holdersMap = await getHoldersMap(fulfillmentBranch, client);
@@ -512,8 +518,8 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       // Locking, availability validation, holder recheck, and writes share one
       // retryable transaction so simultaneous requests cannot both win.
       const { rows: reqRows } = await client.query(
-        `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'awaiting') RETURNING id`,
+        `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, workflow_version, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 2, $8, $9, $10, $11, $12, $13, 'awaiting') RETURNING id`,
         [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, paperworkType, deliveryRoute ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress]
       );
       const newRequestId = reqRows[0].id;
@@ -574,6 +580,7 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       deliveryBranch: creation.deliveryBranch,
       crossBranch: creation.crossBranch,
       deliveryRoute: creation.deliveryRoute,
+      workflowVersion: 2,
       stones: stonesFull,
       status: 'awaiting',
     });
@@ -767,13 +774,15 @@ router.get('/by-rep/:repId', async (req, res, next) => {
       return res.status(403).json({ error: 'You can only view your own requests' });
     }
     const { rows: requests } = await pool.query(
-      `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, transfer_status,
+      `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, workflow_version, transfer_status,
               erp_transfer_confirmed, erp_transfer_confirmed_at, erp_transfer_confirmed_by,
               erp_transfer_received, erp_transfer_received_at, erp_transfer_received_by,
               erp_receive_requested_at, erp_receive_requested_by,
               cancelled_at, cancelled_by, cancellation_status, cancellation_reason,
               requested_at, status, request_scope, request_type, dropoff_company, dropoff_address,
-              EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = requests.id) AS has_label FROM requests
+              EXISTS(SELECT 1 FROM request_shipping_labels l WHERE l.request_id = requests.id) AS has_label,
+              EXISTS(SELECT 1 FROM request_paperwork_files p WHERE p.request_id = requests.id) AS has_paperwork
+       FROM requests
        WHERE sales_rep_id = $1 ORDER BY requested_at DESC`,
       [repId]
     );
@@ -788,6 +797,7 @@ router.get('/by-rep/:repId', async (req, res, next) => {
           crossBranch: r.cross_branch,
           deliveryRoute: r.delivery_route,
           paperworkType: r.paperwork_type,
+          workflowVersion: r.workflow_version,
           transferStatus: r.transfer_status,
           erpTransferConfirmed: r.erp_transfer_confirmed,
           erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
@@ -806,6 +816,7 @@ router.get('/by-rep/:repId', async (req, res, next) => {
           cancellationStatus: r.cancellation_status,
           cancellationReason: r.cancellation_reason,
           hasLabel: r.has_label,
+          hasPaperwork: r.has_paperwork,
           requestedAt: r.requested_at,
           status: r.status,
           requestScope: r.request_scope,

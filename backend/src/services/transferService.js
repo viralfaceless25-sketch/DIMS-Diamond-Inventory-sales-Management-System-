@@ -16,7 +16,21 @@ const CUSTOMER_DROPOFF_STEPS = {
   packed: { dropoff_customer: 'dropped_off_to_customer' },
 };
 
-function getTransferAction({ route, status, sourceBranch, destinationBranch, actorBranch, action, hasLabel = false, paperworkType = 'none', requiresErpTransfer = false, erpTransferConfirmed = false }) {
+function getTransferAction({
+  route,
+  status,
+  sourceBranch,
+  destinationBranch,
+  actorBranch,
+  action,
+  hasLabel = false,
+  hasPaperwork = false,
+  paperworkType = 'none',
+  workflowVersion = 1,
+  requiresErpTransfer = false,
+  erpTransferConfirmed = false,
+  erpTransferReceived = false,
+}) {
   const sourceOnly = ['pack', 'ship', 'ship_customer', 'dropoff_customer'];
   const destinationOnly = ['receive', 'ready', 'hand_to_rep'];
   if (sourceOnly.includes(action) && actorBranch !== sourceBranch) {
@@ -34,11 +48,25 @@ function getTransferAction({ route, status, sourceBranch, destinationBranch, act
   if (!steps || !steps[status] || !steps[status][action]) {
     throw new Error(`This transfer action is not allowed while the request is ${status}`);
   }
-  if (route === 'customer_ship' && action === 'ship_customer' && !hasLabel) {
-    throw new Error('A shipping label must be uploaded before shipping to the customer');
-  }
-  if (route === 'customer_ship' && action === 'ship_customer' && paperworkType === 'pending') {
-    throw new Error('A paperwork decision is required before shipping to the customer');
+  if (route === 'customer_ship' && action === 'ship_customer') {
+    if (Number(workflowVersion || 1) >= 2) {
+      if (requiresErpTransfer && !erpTransferReceived) {
+        throw new Error('The branch transfer must be received in ERP before shipping to the customer');
+      }
+      if (!hasPaperwork) {
+        throw new Error('A real invoice or memo paperwork file must be uploaded before shipping');
+      }
+      if (!hasLabel) {
+        throw new Error('A shipping label must be uploaded before shipping to the customer');
+      }
+    } else {
+      if (!hasLabel) {
+        throw new Error('A shipping label must be uploaded before shipping to the customer');
+      }
+      if (paperworkType === 'pending') {
+        throw new Error('A paperwork decision is required before shipping to the customer');
+      }
+    }
   }
   return steps[status][action];
 }

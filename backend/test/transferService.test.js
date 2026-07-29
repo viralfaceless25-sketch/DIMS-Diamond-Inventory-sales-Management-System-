@@ -65,3 +65,35 @@ test('direct customer shipment requires the supplying branch and a label', () =>
   assert.equal(getTransferAction({ route: 'customer_ship', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'ship_customer', hasLabel: true, paperworkType: 'none' }), 'shipped_to_customer');
   assert.equal(getTransferAction({ route: 'customer_ship', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'ship_customer', hasLabel: true, paperworkType: 'invoice' }), 'shipped_to_customer');
 });
+
+test('version-2 customer shipment requires ERP receipt and both real files', () => {
+  const ready = {
+    route: 'customer_ship',
+    status: 'packed',
+    sourceBranch: 'LA',
+    destinationBranch: 'NY',
+    actorBranch: 'LA',
+    action: 'ship_customer',
+    requiresErpTransfer: true,
+    erpTransferConfirmed: true,
+    erpTransferReceived: true,
+    workflowVersion: 2,
+    hasPaperwork: true,
+    hasLabel: true,
+    paperworkType: 'invoice',
+  };
+
+  assert.equal(getTransferAction(ready), 'shipped_to_customer');
+  assert.throws(
+    () => getTransferAction({ ...ready, erpTransferReceived: false }),
+    /received in ERP/
+  );
+  assert.throws(
+    () => getTransferAction({ ...ready, hasPaperwork: false }),
+    /paperwork file/
+  );
+  assert.throws(
+    () => getTransferAction({ ...ready, hasLabel: false }),
+    /shipping label/
+  );
+});
