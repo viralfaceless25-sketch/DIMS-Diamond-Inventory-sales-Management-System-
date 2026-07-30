@@ -30,6 +30,6 @@ test('public download page exposes versioned Windows release details', () => {
   assert.match(page, /Windows protected your PC/);
   assert.match(page, /SHA-256/);
   assert.equal(fs.existsSync(path.join(root, 'src/release.json')), true);
-  assert.equal(release.version, '1.0.4');
-  assert.match(release.downloadUrl, /DiamondInventory-Setup-1\.0\.4\.exe$/);
+  assert.equal(release.version, '1.0.5');
+  assert.match(release.downloadUrl, /DiamondInventory-Setup-1\.0\.5\.exe$/);
 });
