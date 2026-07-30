@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  batchReadyCount,
   branchToday,
   componentSummary,
   defaultCandidateId,
+  defaultComponents,
   receiptFormReady,
   shiftIsoDate,
 } from '../src/lib/receiving';
@@ -79,4 +81,26 @@ test('daily history navigation is stable across month and year boundaries', () =
 test('component summary mirrors the inventory yes/no sheet', () => {
   assert.equal(componentSummary(true, false), 'Stone: Yes · Cert: No');
   assert.equal(componentSummary(false, true), 'Stone: No · Cert: Yes');
+});
+
+test('batch rows pre-fill Stone/Cert from the matched request scope', () => {
+  assert.deepEqual(defaultComponents('stone_and_cert'), { stoneReceived: true, certReceived: true });
+  assert.deepEqual(defaultComponents('stone_only'), { stoneReceived: true, certReceived: false });
+  assert.deepEqual(defaultComponents('cert_only'), { stoneReceived: false, certReceived: true });
+  // Unmatched (no scope) defaults to both received; the user can flip either.
+  assert.deepEqual(defaultComponents(undefined), { stoneReceived: true, certReceived: true });
+});
+
+test('batchReadyCount counts only rows that pass per-receipt validation', () => {
+  const rows = [
+    // ready: single matched request, one component received
+    { barcode: 'A-1', stoneReceived: true, certReceived: true, candidateCount: 1, requestStoneId: 5, sourceBranch: '', receivingBranch: 'NY' },
+    // not ready: multiple candidates, none chosen
+    { barcode: 'A-2', stoneReceived: true, certReceived: false, candidateCount: 2, requestStoneId: null, sourceBranch: '', receivingBranch: 'NY' },
+    // ready: unmatched with a valid different sending branch
+    { barcode: 'A-3', stoneReceived: false, certReceived: true, candidateCount: 0, requestStoneId: null, sourceBranch: 'LA', receivingBranch: 'NY' },
+    // not ready: nothing received
+    { barcode: 'A-4', stoneReceived: false, certReceived: false, candidateCount: 1, requestStoneId: 9, sourceBranch: '', receivingBranch: 'NY' },
+  ];
+  assert.equal(batchReadyCount(rows), 2);
 });

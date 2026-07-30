@@ -17,9 +17,25 @@ import {
   branchToday,
   componentSummary,
   defaultCandidateId,
+  defaultComponents,
   receiptFormReady,
   shiftIsoDate,
 } from '@/lib/receiving';
+
+type BatchRow = {
+  key: string;
+  barcode: string;
+  loading: boolean;
+  candidates: ReceiptCandidate[];
+  previousCount: number;
+  requestStoneId: number | null;
+  sourceBranch: string;
+  stoneReceived: boolean;
+  certReceived: boolean;
+  note: string;
+  saved: boolean;
+  error: string;
+};
 
 const BRANCHES = ['NY', 'LA', 'CH'];
 const STATUSES: ReceiptStatus[] = [
@@ -152,6 +168,17 @@ export default function ReceivingPage() {
   const [editNote, setEditNote] = useState('');
   const scanRef = useRef<HTMLInputElement>(null);
 
+  // Batch scanning: one popup collects many barcodes, matches each request
+  // individually, and saves one receipt per barcode via the same endpoint the
+  // single scan uses. Physical receipt still never touches the ERP BT state.
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchScan, setBatchScan] = useState('');
+  const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+  const [batchScanning, setBatchScanning] = useState(false);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
+  const batchScanRef = useRef<HTMLInputElement>(null);
+
   const historyParams = useMemo(() => ({
     date,
     search,
@@ -275,6 +302,127 @@ export default function ReceivingPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function openBatch(seed?: string) {
+    setBatchOpen(true);
+    setMessage('');
+    window.setTimeout(() => batchScanRef.current?.focus(), 0);
+    if (seed) void addBatchScan(seed);
+  }
+
+  function updateRow(key: string, patch: Partial<BatchRow>) {
+    setBatchRows((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
+  function removeRow(key: string) {
+    setBatchRows((rows) => rows.filter((row) => row.key !== key));
+  }
+
+  async function addBatchScan(raw: string) {
+    const normalized = raw.trim().toUpperCase();
+    setBatchScan('');
+    if (!normalized) return;
+    // Re-scanning a barcode already in the batch (and not yet saved) just
+    // re-focuses it rather than silently creating a second identical row.
+    const existing = batchRows.find((row) => row.barcode === normalized && !row.saved);
+    if (existing) {
+      setMessage(`${normalized} is already in this batch.`);
+      return;
+    }
+    const key = `${normalized}-${Date.now()}`;
+    setBatchRows((rows) => [
+      ...rows,
+      { key, barcode: normalized, loading: true, candidates: [], previousCount: 0, requestStoneId: null, sourceBranch: '', stoneReceived: true, certReceived: true, note: '', saved: false, error: '' },
+    ]);
+    setBatchScanning(true);
+    try {
+      const result = await api.receiptLookup(normalized);
+      const selectedId = defaultCandidateId(result.candidates);
+      const chosen = result.candidates.find((candidate) => candidate.requestStoneId === selectedId) || null;
+      const scope = chosen?.requestScope;
+      const components = defaultComponents(scope);
+      updateRow(key, {
+        loading: false,
+        candidates: result.candidates,
+        previousCount: result.previousReceipts.length,
+        requestStoneId: selectedId,
+        sourceBranch: chosen?.sourceBranch || '',
+        stoneReceived: components.stoneReceived,
+        certReceived: components.certReceived,
+      });
+    } catch (error) {
+      updateRow(key, { loading: false, error: error instanceof Error ? error.message : 'Lookup failed' });
+    } finally {
+      setBatchScanning(false);
+      window.setTimeout(() => batchScanRef.current?.focus(), 0);
+    }
+  }
+
+  function batchRowFormState(row: BatchRow) {
+    return {
+      barcode: row.barcode,
+      stoneReceived: row.stoneReceived,
+      certReceived: row.certReceived,
+      candidateCount: row.candidates.length,
+      requestStoneId: row.requestStoneId,
+      sourceBranch: row.sourceBranch,
+      receivingBranch: branch,
+    };
+  }
+
+  async function saveBatch() {
+    const pending = batchRows.filter((row) => !row.saved && !row.loading);
+    if (!pending.length) return;
+    setBatchSaving(true);
+    setMessage('');
+    let savedCount = 0;
+    let failedCount = 0;
+    for (const row of pending) {
+      if (!receiptFormReady(batchRowFormState(row))) {
+        updateRow(row.key, { error: 'Mark Stone/Cert and pick a request or sending branch.' });
+        failedCount += 1;
+        continue;
+      }
+      try {
+        await api.createReceipt({
+          barcode: row.barcode,
+          stoneReceived: row.stoneReceived,
+          certReceived: row.certReceived,
+          ...(row.requestStoneId ? { requestStoneId: row.requestStoneId } : { sourceBranch: row.sourceBranch }),
+          duplicateOverride: allowDuplicates,
+          note: row.note.trim() || undefined,
+        });
+        updateRow(row.key, { saved: true, error: '' });
+        savedCount += 1;
+      } catch (error) {
+        const dup = error instanceof ApiError && error.status === 409;
+        updateRow(row.key, {
+          error: dup
+            ? 'Looks like a duplicate. Tick "Allow duplicates" to save it, or remove it.'
+            : error instanceof Error ? error.message : 'Could not save.',
+        });
+        failedCount += 1;
+      }
+    }
+    setBatchSaving(false);
+    await loadHistory();
+    if (failedCount === 0) {
+      setMessage(`Saved ${savedCount} scanned ${savedCount === 1 ? 'item' : 'items'}.`);
+      setBatchRows([]);
+      setBatchOpen(false);
+      setAllowDuplicates(false);
+    } else {
+      setMessage(`Saved ${savedCount}; ${failedCount} still need attention below.`);
+    }
+  }
+
+  function closeBatch() {
+    setBatchOpen(false);
+    setBatchRows([]);
+    setBatchScan('');
+    setAllowDuplicates(false);
+    window.setTimeout(() => scanRef.current?.focus(), 0);
   }
 
   async function handoff(row: ShipmentReceipt) {
@@ -432,6 +580,9 @@ export default function ReceivingPage() {
                 <button type="submit" disabled={scanLoading || !barcode.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12px 'Inter'", cursor: 'pointer', opacity: scanLoading ? 0.55 : 1 }}>
                   {scanLoading ? 'Checking…' : 'Find request'}
                 </button>
+                <button type="button" onClick={() => openBatch(barcode.trim() || undefined)} style={{ padding: '0 16px', borderRadius: 8, border: `1px solid ${ACCENT.replace(')', ' / 0.5)')}`, background: 'transparent', color: ACCENT, font: "800 12px 'Inter'", cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Scan multiple
+                </button>
               </form>
 
               {lookup && (
@@ -559,6 +710,109 @@ export default function ReceivingPage() {
           </div>
         </div>
       </div>
+
+      {batchOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ ...card, width: 760, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ font: "800 15px 'Inter'" }}>Scan shipment</div>
+              <span style={{ padding: '4px 9px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 10.5px 'Inter'" }}>Receiving at {branch}</span>
+              <div style={{ flex: 1 }} />
+              <div style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{batchRows.length} scanned</div>
+            </div>
+
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.border}` }}>
+              <form onSubmit={(event) => { event.preventDefault(); void addBatchScan(batchScan); }} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  ref={batchScanRef}
+                  value={batchScan}
+                  onChange={(event) => setBatchScan(event.target.value.toUpperCase())}
+                  placeholder="Scan each barcode and press Enter"
+                  autoComplete="off"
+                  style={{ ...inputStyle, flex: 1, fontSize: 16, letterSpacing: '0.03em' }}
+                />
+                <button type="submit" disabled={batchScanning || !batchScan.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12px 'Inter'", cursor: 'pointer', opacity: batchScanning || !batchScan.trim() ? 0.55 : 1 }}>
+                  {batchScanning ? 'Adding…' : 'Add'}
+                </button>
+              </form>
+              <div style={{ font: "500 11px 'Inter'", color: t.textFaint, marginTop: 8 }}>
+                Each barcode is matched to its own request. Mark exactly what physically arrived, then save the whole batch.
+              </div>
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 20px' }}>
+              {batchRows.length === 0 && (
+                <div style={{ padding: 28, textAlign: 'center', color: t.textFaint, font: "500 12px 'Inter'" }}>No barcodes scanned yet.</div>
+              )}
+              {batchRows.map((row) => (
+                <div key={row.key} style={{ ...card, padding: 12, marginBottom: 10, opacity: row.saved ? 0.6 : 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: row.saved ? 0 : 10 }}>
+                    <div style={{ font: "800 13px 'Inter'", flex: 1 }}>{row.barcode}</div>
+                    {row.saved && <span style={{ color: GREEN, font: "700 11px 'Inter'" }}>Saved ✓</span>}
+                    {row.previousCount > 0 && !row.saved && <span style={{ color: AMBER, font: "600 10.5px 'Inter'" }}>Scanned before</span>}
+                    {!row.saved && <button type="button" onClick={() => removeRow(row.key)} style={{ ...inputStyle, cursor: 'pointer', padding: '4px 9px' }}>Remove</button>}
+                  </div>
+                  {!row.saved && (
+                    <>
+                      {row.loading ? (
+                        <div style={{ color: t.textFaint, font: "500 12px 'Inter'" }}>Looking up request…</div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                          <div style={{ flex: '1 1 300px' }}>
+                            {row.candidates.length > 0 ? (
+                              <div style={{ display: 'grid', gap: 6 }}>
+                                <div style={{ font: "700 10.5px 'Inter'", color: t.textFaint }}>{row.candidates.length === 1 ? 'Matched request' : 'Choose the correct request'}</div>
+                                {row.candidates.map((candidate) => (
+                                  <CandidateCard
+                                    key={candidate.requestStoneId}
+                                    candidate={candidate}
+                                    selected={candidate.requestStoneId === row.requestStoneId}
+                                    onSelect={() => updateRow(row.key, { requestStoneId: candidate.requestStoneId, sourceBranch: candidate.sourceBranch })}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div>
+                                <div style={{ font: "700 10.5px 'Inter'", color: t.textFaint, marginBottom: 6 }}>No open request matched — pick the sending branch</div>
+                                <select value={row.sourceBranch} onChange={(event) => updateRow(row.key, { sourceBranch: event.target.value })} style={{ ...inputStyle, minWidth: 170 }}>
+                                  <option value="">Select branch</option>
+                                  {BRANCHES.filter((item) => item !== branch).map((item) => <option key={item}>{item}</option>)}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 18 }}>
+                            <Choice label="STONE?" value={row.stoneReceived} onChange={(value) => updateRow(row.key, { stoneReceived: value })} />
+                            <Choice label="CERT?" value={row.certReceived} onChange={(value) => updateRow(row.key, { certReceived: value })} />
+                          </div>
+                        </div>
+                      )}
+                      {row.error && <div style={{ marginTop: 8, color: RED, font: "600 11px 'Inter'" }}>{row.error}</div>}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, font: "600 11.5px 'Inter'", color: t.textMuted, cursor: 'pointer' }}>
+                <input type="checkbox" checked={allowDuplicates} onChange={(event) => setAllowDuplicates(event.target.checked)} />
+                Allow duplicate packages
+              </label>
+              <div style={{ flex: 1 }} />
+              <button type="button" onClick={closeBatch} style={{ ...inputStyle, cursor: 'pointer' }}>Close</button>
+              <button
+                type="button"
+                disabled={batchSaving || batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length === 0}
+                onClick={saveBatch}
+                style={{ padding: '11px 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12.5px 'Inter'", cursor: 'pointer', opacity: batchSaving ? 0.55 : 1 }}
+              >
+                {batchSaving ? 'Saving…' : `Save ${batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length} received`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>

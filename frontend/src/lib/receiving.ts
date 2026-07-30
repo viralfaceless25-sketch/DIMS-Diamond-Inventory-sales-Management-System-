@@ -72,3 +72,22 @@ export function componentSummary(
 ) {
   return `Stone: ${stoneReceived ? 'Yes' : 'No'} · Cert: ${certReceived ? 'Yes' : 'No'}`;
 }
+
+// Batch scanning: when a barcode is added to the batch popup we pre-fill the
+// Stone/Cert answers from the matched request's scope so the common case (the
+// whole package arrived) needs no toggling, while the inventory user can still
+// flip either answer to No. An unmatched barcode defaults to both Yes.
+export function defaultComponents(requestScope?: string): {
+  stoneReceived: boolean;
+  certReceived: boolean;
+} {
+  if (requestScope === 'stone_only') return { stoneReceived: true, certReceived: false };
+  if (requestScope === 'cert_only') return { stoneReceived: false, certReceived: true };
+  return { stoneReceived: true, certReceived: true };
+}
+
+// A batch is submittable once every row that has not already been saved passes
+// the same per-receipt validation the single-scan form uses.
+export function batchReadyCount(rows: ReceiptFormState[]): number {
+  return rows.filter((row) => receiptFormReady(row)).length;
+}
