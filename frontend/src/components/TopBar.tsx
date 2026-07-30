@@ -6,6 +6,7 @@ export function TopBar({
   title,
   branch,
   onBranch,
+  lockBranch,
   search,
   onSearch,
   searchPlaceholder = 'Search rep, stock# or cert#',
@@ -15,6 +16,10 @@ export function TopBar({
   title: string;
   branch: string;
   onBranch: (b: string) => void;
+  // When set, the selector is pinned to a single branch (an inventory room may
+  // only ever view its own). The pills are replaced by a static badge so the UI
+  // matches the server, which ignores any wider branch value for inventory.
+  lockBranch?: string;
   search?: string;
   onSearch?: (s: string) => void;
   searchPlaceholder?: string;
@@ -27,26 +32,41 @@ export function TopBar({
       <div style={{ font: "700 16px 'Inter'", color: t.text, flex: 'none' }}>{title}</div>
 
       <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
-        {pills.map((b) => {
-          const active = branch === b;
-          return (
-            <div
-              key={b}
-              onClick={() => onBranch(b)}
-              style={{
-                cursor: 'pointer',
-                font: "600 11.5px 'Inter'",
-                padding: '6px 13px',
-                borderRadius: 20,
-                background: active ? 'oklch(78% 0.13 240 / 0.18)' : t.bgCard,
-                color: active ? ACCENT : t.textMuted,
-                border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.borderLight}`,
-              }}
-            >
-              {b === 'ALL' ? 'All' : b}
-            </div>
-          );
-        })}
+        {lockBranch ? (
+          <div
+            style={{
+              font: "600 11.5px 'Inter'",
+              padding: '6px 13px',
+              borderRadius: 20,
+              background: 'oklch(78% 0.13 240 / 0.18)',
+              color: ACCENT,
+              border: '1px solid oklch(78% 0.13 240 / 0.3)',
+            }}
+          >
+            {lockBranch}
+          </div>
+        ) : (
+          pills.map((b) => {
+            const active = branch === b;
+            return (
+              <div
+                key={b}
+                onClick={() => onBranch(b)}
+                style={{
+                  cursor: 'pointer',
+                  font: "600 11.5px 'Inter'",
+                  padding: '6px 13px',
+                  borderRadius: 20,
+                  background: active ? 'oklch(78% 0.13 240 / 0.18)' : t.bgCard,
+                  color: active ? ACCENT : t.textMuted,
+                  border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.borderLight}`,
+                }}
+              >
+                {b === 'ALL' ? 'All' : b}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div style={{ flex: 1 }} />

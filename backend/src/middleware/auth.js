@@ -16,8 +16,11 @@ async function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const { rows } = await pool.query(
-      `SELECT id, email, role, sales_rep_id, is_active, must_change_password, token_version
-       FROM users WHERE id = $1`,
+      `SELECT u.id, u.email, u.role, u.sales_rep_id, u.is_active, u.must_change_password,
+              u.token_version, sr.branch
+       FROM users u
+       LEFT JOIN sales_reps sr ON sr.id = u.sales_rep_id
+       WHERE u.id = $1`,
       [payload.id]
     );
     const user = rows[0];
@@ -29,6 +32,7 @@ async function requireAuth(req, res, next) {
       email: user.email,
       role: user.role,
       salesRepId: user.sales_rep_id,
+      branch: user.branch || null,
       mustChangePassword: user.must_change_password,
     };
     const passwordChangeAllowed = req.originalUrl === '/api/auth/me' || req.originalUrl === '/api/auth/change-password';

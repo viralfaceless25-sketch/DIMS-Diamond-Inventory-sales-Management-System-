@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, TrackingRow } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
+import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
@@ -41,7 +42,9 @@ function formatDate(value: string) {
 
 export default function TrackingPage() {
   const { theme: t } = useTheme();
-  const [branch, setBranch] = useState('ALL');
+  const { user } = useAuth();
+  // Inventory staff only ever track their own branch; the server enforces this.
+  const [branch, setBranch] = useState(user?.branch || 'ALL');
   const [search, setSearch] = useState('');
   const [movement, setMovement] = useState('');
   const [rows, setRows] = useState<TrackingRow[]>([]);
@@ -65,13 +68,16 @@ export default function TrackingPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [branch, search, movement]);
+  useEffect(() => {
+    if (user?.branch && user.branch !== branch) setBranch(user.branch);
+  }, [user?.branch, branch]);
   useBranchSocket(branch, () => load());
 
   const summaryCols = 'minmax(150px,1.2fr) minmax(115px,1fr) minmax(130px,1fr) 80px 90px minmax(130px,1fr) 110px 32px';
 
   return (
     <>
-      <TopBar title="Stone movement history" branch={branch} onBranch={setBranch} search={search} onSearch={setSearch} t={t} />
+      <TopBar title="Stone movement history" branch={branch} onBranch={setBranch} lockBranch={user?.branch || undefined} search={search} onSearch={setSearch} t={t} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>

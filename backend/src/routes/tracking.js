@@ -8,6 +8,7 @@ const {
 const {
   buildRequestAvailabilityVerification,
 } = require('../services/stockRecheckService');
+const { inventoryBranchScope } = require('../services/branchScope');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -67,7 +68,7 @@ router.get('/', async (req, res, next) => {
       return res.status(403).json({ error: 'Inventory or sales-rep access is required' });
     }
 
-    const { branch, search, movement } = req.query;
+    const { search, movement } = req.query;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 100));
     const params = [];
@@ -76,8 +77,10 @@ router.get('/', async (req, res, next) => {
     if (req.user.role === 'sales_rep') {
       params.push(req.user.salesRepId);
       conditions.push(`r.sales_rep_id = $${params.length}`);
-    } else if (branch && branch !== 'ALL') {
-      params.push(branch);
+    } else {
+      // Inventory is pinned to its own branch; ALL / other-branch query values
+      // are ignored so a room only ever tracks its own movements.
+      params.push(inventoryBranchScope(req.user.branch));
       conditions.push(`(r.branch = $${params.length} OR r.fulfillment_branch = $${params.length} OR r.delivery_branch = $${params.length})`);
     }
     if (search) {

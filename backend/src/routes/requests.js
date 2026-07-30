@@ -23,6 +23,7 @@ const {
 const {
   assertInventoryRequestMutation,
 } = require('../services/requestAuthorization');
+const { inventoryBranchScope } = require('../services/branchScope');
 const {
   deriveSnapshotReconciliation,
 } = require('../services/stockSnapshotService');
@@ -229,16 +230,14 @@ async function applyStoneMutationAndRecompute(
   });
 }
 
-// GET /api/requests/stats?branch=ALL  (inventory dashboard only)
+// GET /api/requests/stats  (inventory dashboard only)
+// Always scoped to the authenticated inventory user's own branch — a room
+// never sees another branch's totals, regardless of any query-string value.
 router.get('/stats', requireRole('inventory'), async (req, res, next) => {
   try {
-    const { branch } = req.query;
-    const params = [];
-    let where = '';
-    if (branch && branch !== 'ALL') {
-      params.push(branch);
-      where = 'WHERE branch = $1 OR fulfillment_branch = $1 OR delivery_branch = $1';
-    }
+    const branch = inventoryBranchScope(req.user.branch);
+    const params = [branch];
+    const where = 'WHERE branch = $1 OR fulfillment_branch = $1 OR delivery_branch = $1';
     const { rows: reqRows } = await pool.query(
       `SELECT id, status FROM requests ${where}`,
       params
@@ -247,12 +246,8 @@ router.get('/stats', requireRole('inventory'), async (req, res, next) => {
     const fulfilledRequests = reqRows.filter((r) => r.status === 'fulfilled').length;
     const cancelledRequests = reqRows.filter((r) => r.status === 'cancelled').length;
 
-    const stoneParams = [];
-    let stoneWhere = '';
-    if (branch && branch !== 'ALL') {
-      stoneParams.push(branch);
-      stoneWhere = 'WHERE r.branch = $1 OR r.fulfillment_branch = $1 OR r.delivery_branch = $1';
-    }
+    const stoneParams = [branch];
+    const stoneWhere = 'WHERE r.branch = $1 OR r.fulfillment_branch = $1 OR r.delivery_branch = $1';
     const { rows: stoneCountRows } = await pool.query(
       `SELECT count(*) FROM request_stones rs JOIN requests r ON r.id = rs.request_id ${stoneWhere}`,
       stoneParams
@@ -280,14 +275,15 @@ router.get('/stats', requireRole('inventory'), async (req, res, next) => {
 // /by-rep/:repId (scoped to themselves) instead.
 router.get('/', requireRole('inventory'), async (req, res, next) => {
   try {
-    const { branch, view = 'active', sort = 'recent', search } = req.query;
+    const { view = 'active', sort = 'recent', search } = req.query;
+    // Inventory is always pinned to its own branch; ALL / other-branch values
+    // in the query string are ignored so a room can only see its own queue.
+    const branch = inventoryBranchScope(req.user.branch);
 
     const params = [];
     const conditions = [];
-    if (branch && branch !== 'ALL') {
-      params.push(branch);
-      conditions.push(`(r.branch = $${params.length} OR r.fulfillment_branch = $${params.length} OR r.delivery_branch = $${params.length})`);
-    }
+    params.push(branch);
+    conditions.push(`(r.branch = $${params.length} OR r.fulfillment_branch = $${params.length} OR r.delivery_branch = $${params.length})`);
     if (search) {
       params.push(`%${search.toLowerCase()}%`);
       const idx = params.length;

@@ -20,7 +20,9 @@ const STONE_TABLE_COLS = '58px 58px 58px minmax(170px,1.35fr) minmax(150px,1fr) 
 export default function RequestsPage() {
   const { theme: t } = useTheme();
   const { user } = useAuth();
-  const [branch, setBranch] = useState('ALL');
+  // Inventory staff are pinned to their own branch. The server enforces this too;
+  // this keeps the visible queue and socket subscription on the room's branch.
+  const [branch, setBranch] = useState(user?.branch || 'ALL');
   const [view, setView] = useState<'active' | 'completed'>('active');
   const [sort, setSort] = useState<'recent' | 'most_stones'>('recent');
   const [search, setSearch] = useState('');
@@ -57,6 +59,9 @@ export default function RequestsPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (user?.branch && user.branch !== branch) setBranch(user.branch);
+  }, [user?.branch, branch]);
   useBranchSocket(branch, () => load());
 
   async function toggleExpand(id: number) {
@@ -372,7 +377,7 @@ export default function RequestsPage() {
 
   return (
     <>
-      <TopBar title="Requests" branch={branch} onBranch={setBranch} search={search} onSearch={setSearch} t={t} />
+      <TopBar title="Requests" branch={branch} onBranch={setBranch} lockBranch={user?.branch || undefined} search={search} onSearch={setSearch} t={t} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
         {rechecks.length > 0 && (
