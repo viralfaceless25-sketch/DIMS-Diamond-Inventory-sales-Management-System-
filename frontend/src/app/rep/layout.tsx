@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRequireRole, useAuth } from '@/lib/auth';
 import { THEMES, ThemeName, ACCENT, COLOR_ORDER, CLARITY_ORDER, initialsOf } from '@/lib/theme';
 import { api } from '@/lib/api';
+import { MiniDiamondSearch } from '@/components/MiniDiamondSearch';
 import { ThemeContext, CartContext, StockFilterContext } from './repContext';
 
 // Theme context (light/dark) — Sales Rep app only, per the prototype.
@@ -72,6 +73,9 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
                 <div style={{ font: "500 10.5px 'Inter'", color: t.textFaint }}>Sales rep · {user.branch}</div>
               </div>
             </div>
+
+            {/* Mini diamond search — quick stock lookup from any rep page */}
+            <MiniDiamondSearch t={t} />
 
             {NAV.map((item) => {
               const active = pathname === item.href;

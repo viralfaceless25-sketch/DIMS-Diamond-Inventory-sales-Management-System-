@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, LooseStone, JewelryPiece, ExtractedStone, StockRecheck } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
@@ -47,9 +48,14 @@ export default function RequestStonesPage() {
   const { colors: colorFilter, clarities: clarityFilter, shapes: shapeFilter } = useStockFilters();
   const branch = user?.branch || 'NY';
 
+  // The sidebar mini diamond search links here with ?q=<barcode>, which
+  // pre-fills the main search box so the picked stone is the first result.
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get('q') || '';
+
   const [stock, setStock] = useState<LooseStone[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [confirmMsg, setConfirmMsg] = useState('');
   const [confirmError, setConfirmError] = useState(false);
@@ -130,6 +136,13 @@ export default function RequestStonesPage() {
   useEffect(() => {
     load();
   }, [load]);
+  // Re-applies ?q= when the mini search is used again while already on this
+  // page (client-side nav to the same route doesn't remount, so the initial
+  // useState value above wouldn't otherwise pick up a second search).
+  useEffect(() => {
+    const q = searchParams.get('q') || '';
+    if (q) setSearch(q);
+  }, [searchParams]);
   useEffect(() => {
     setCount(cart.length);
   }, [cart, setCount]);
