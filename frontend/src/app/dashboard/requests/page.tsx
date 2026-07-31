@@ -555,6 +555,29 @@ export default function RequestsPage() {
                                   </div>
                                 )}
                                 <div style={{ minWidth: 1040 }}>
+                                {(() => {
+                                  // A single toggle for "everything requested was found": both
+                                  // Stone and Cert for a stone_and_cert request, or just the one
+                                  // field that applies for stone_only / cert_only — the backend's
+                                  // checkAll already applies exactly that scope when field is
+                                  // omitted, so this reuses it rather than re-deriving the rule here.
+                                  const allFound = detail.stones.every((stone) => (
+                                    r.requestScope === 'stone_only' ? stone.stone_found
+                                      : r.requestScope === 'cert_only' ? stone.cert_found
+                                        : stone.stone_found && stone.cert_found
+                                  ));
+                                  return (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px 0' }}>
+                                      <Check checked={allFound} onClick={() => checkAll(r.id, !allFound)} disabled={!canResolveItems(r)} size={18} />
+                                      <span
+                                        onClick={() => (canResolveItems(r) ? checkAll(r.id, !allFound) : undefined)}
+                                        style={{ font: "800 11px 'Inter'", color: canResolveItems(r) ? t.text : t.textFainter, cursor: canResolveItems(r) ? 'pointer' : 'default' }}
+                                      >
+                                        Mark all found
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                                 <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 11.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
                                   <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} size={18} /></div>
                                   <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} size={18} /></div>
