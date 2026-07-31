@@ -39,10 +39,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <div style={{ width: 224, flex: 'none', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 22px' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 14px 'Inter'", color: '#0a0e0d' }}>D</div>
-          <div style={{ font: "700 14.5px 'Inter'", color: t.text }}>Diamond ERP</div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 16px 'Inter'", color: '#0a0e0d' }}>D</div>
+          <div style={{ font: "700 16.5px 'Inter'", color: t.text }}>Diamond ERP</div>
         </div>
-        <div style={{ font: "600 10px 'Inter'", color: t.textFainter, letterSpacing: '0.06em', padding: '6px 12px 8px' }}>INVENTORY SIDE</div>
+        <div style={{ font: "600 12px 'Inter'", color: t.textFainter, letterSpacing: '0.06em', padding: '6px 12px 8px' }}>INVENTORY SIDE</div>
 
         {NAV.map((item) => {
           const active = pathname === item.href;
@@ -59,7 +59,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                   <path d={item.icon} />
                 )}
               </svg>
-              <span style={{ font: "600 13px 'Inter'", color: fg }}>{item.label}</span>
+              <span style={{ font: "600 15px 'Inter'", color: fg }}>{item.label}</span>
             </Link>
           );
         })}
@@ -67,35 +67,35 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div style={{ marginTop: 12, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {reps.length > 0 && (
             <div style={{ padding: '10px 10px', borderRadius: 9, background: t.bgCard, border: `1px solid ${t.border}`, flex: 1, minHeight: 0, overflowY: 'auto' }}>
-              <div style={{ font: "600 10px 'Inter'", color: t.textFainter, letterSpacing: '0.06em', marginBottom: 8 }}>SALES REPS</div>
+              <div style={{ font: "600 12px 'Inter'", color: t.textFainter, letterSpacing: '0.06em', marginBottom: 8 }}>SALES REPS</div>
               {ROSTER_BRANCHES.map((branch) => {
                 const branchReps = reps.filter((rep) => rep.branch === branch).sort((a, b) => (ROSTER_LABELS[a.name] || a.name).localeCompare(ROSTER_LABELS[b.name] || b.name, undefined, { numeric: true }));
                 if (!branchReps.length) return null;
                 return <div key={branch} style={{ marginTop: 9 }}>
-                  <div style={{ font: "700 9.5px 'Inter'", color: ACCENT, marginBottom: 4 }}>{branch}</div>
+                  <div style={{ font: "700 11.5px 'Inter'", color: ACCENT, marginBottom: 4 }}>{branch}</div>
                   {branchReps.map((rep) => <Link key={rep.id} href={`/dashboard/reps?id=${rep.id}`} style={{ textDecoration: 'none', display: 'grid', gridTemplateColumns: '50px minmax(0,1fr)', alignItems: 'center', gap: 7, padding: '6px 5px', borderRadius: 6, background: pathname === '/dashboard/reps' && selectedRepId === String(rep.id) ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
-                    <span style={{ font: "800 10px Arial, sans-serif", color: repColor(rep.name) }}>{ROSTER_LABELS[rep.name] || rep.name}</span>
-                    <span style={{ font: "600 11px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rep.name}</span>
+                    <span style={{ font: "800 12px Arial, sans-serif", color: repColor(rep.name) }}>{ROSTER_LABELS[rep.name] || rep.name}</span>
+                    <span style={{ font: "600 13px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rep.name}</span>
                   </Link>)}
                 </div>;
               })}
             </div>
           )}
-          <div style={{ padding: '4px 12px', font: "400 11px 'Inter'", color: t.textFainter }}>3 branches · NY · LA · CH</div>
+          <div style={{ padding: '4px 12px', font: "400 13px 'Inter'", color: t.textFainter }}>3 branches · NY · LA · CH</div>
 
           {/* Theme toggle */}
           <div onClick={toggle} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', borderRadius: 9, background: t.bgCard, border: `1px solid ${t.border}` }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="1.8">
               {name === 'dark' ? <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /> : <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>}
             </svg>
-            <span style={{ font: "600 12px 'Inter'", color: t.textMuted }}>{name === 'dark' ? 'Dark mode' : 'Light mode'}</span>
+            <span style={{ font: "600 14px 'Inter'", color: t.textMuted }}>{name === 'dark' ? 'Dark mode' : 'Light mode'}</span>
           </div>
 
           <div style={{ padding: '10px 12px', borderRadius: 9, background: t.bgCard, border: `1px solid ${t.border}` }}>
-            <div style={{ font: "600 12px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
-            <div style={{ font: "500 10.5px 'Inter'", color: ACCENT, marginTop: 2 }}>Inventory staff</div>
+            <div style={{ font: "600 14px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
+            <div style={{ font: "500 12.5px 'Inter'", color: ACCENT, marginTop: 2 }}>Inventory staff</div>
           </div>
-          <button onClick={logout} style={{ padding: '9px 12px', borderRadius: 9, background: 'transparent', border: `1px solid ${t.border}`, color: t.textFaint, font: "600 11.5px 'Inter'", cursor: 'pointer', textAlign: 'left' }}>
+          <button onClick={logout} style={{ padding: '9px 12px', borderRadius: 9, background: 'transparent', border: `1px solid ${t.border}`, color: t.textFaint, font: "600 13.5px 'Inter'", cursor: 'pointer', textAlign: 'left' }}>
             Sign out
           </button>
         </div>
@@ -113,7 +113,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, loading } = useRequireRole('inventory');
 
   if (loading || !user) {
-    return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0e0d', color: 'oklch(60% 0.01 150)', font: "500 14px 'Inter', sans-serif" }}>Loading…</div>;
+    return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0e0d', color: 'oklch(60% 0.01 150)', font: "500 16px 'Inter', sans-serif" }}>Loading…</div>;
   }
 
   return (

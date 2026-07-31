@@ -120,6 +120,62 @@ router.post('/users/:id/reset-password', async (req, res, next) => {
   }
 });
 
+// POST /api/admin/clear-test-data
+// One-time cleanup: clears request data (requests -> cascades to
+// request_stones/paperwork/labels), stone tracking data (stone_movements),
+// and stock data (loose_diamonds/jewelry_pieces). Leaves users, sales_reps,
+// and branches untouched, exactly as requested.
+//
+// Query ?dryRun=true (default false) returns row counts without deleting
+// anything. A real run additionally requires body { confirm: "DELETE TEST
+// DATA" } — an admin role alone is not enough to trigger an irreversible
+// delete, since this route could otherwise be hit by mistake.
+router.post('/clear-test-data', async (req, res, next) => {
+  try {
+    const dryRun = req.query.dryRun === 'true';
+    if (!dryRun && req.body?.confirm !== 'DELETE TEST DATA') {
+      return res.status(400).json({
+        error: 'Real deletion requires { "confirm": "DELETE TEST DATA" } in the request body. Use ?dryRun=true first to preview row counts.',
+      });
+    }
+
+    const counts = await withTransaction(pool, async (client) => {
+      const [requests, requestStones, stoneMovements, loose, jewelry, users, salesReps] = await Promise.all([
+        client.query('SELECT count(*) FROM requests'),
+        client.query('SELECT count(*) FROM request_stones'),
+        client.query('SELECT count(*) FROM stone_movements'),
+        client.query('SELECT count(*) FROM loose_diamonds'),
+        client.query('SELECT count(*) FROM jewelry_pieces'),
+        client.query('SELECT count(*) FROM users'),
+        client.query('SELECT count(*) FROM sales_reps'),
+      ]);
+      const result = {
+        requestsToDelete: Number(requests.rows[0].count),
+        requestStonesToDelete: Number(requestStones.rows[0].count),
+        stoneMovementsToDelete: Number(stoneMovements.rows[0].count),
+        looseDiamondsToDelete: Number(loose.rows[0].count),
+        jewelryPiecesToDelete: Number(jewelry.rows[0].count),
+        usersKept: Number(users.rows[0].count),
+        salesRepsKept: Number(salesReps.rows[0].count),
+      };
+      if (dryRun) return result;
+
+      await client.query('DELETE FROM requests');
+      await client.query('DELETE FROM stone_movements');
+      await client.query('DELETE FROM loose_diamonds');
+      await client.query('DELETE FROM jewelry_pieces');
+      return result;
+    });
+
+    if (!dryRun) {
+      await writeAudit({ actorId: req.user.id, action: 'admin.clear_test_data', targetType: 'system', ip: req.ip, details: counts });
+    }
+    res.json({ dryRun, ...counts });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/audit', async (req, res, next) => {
   try {
     const { rows } = await pool.query(

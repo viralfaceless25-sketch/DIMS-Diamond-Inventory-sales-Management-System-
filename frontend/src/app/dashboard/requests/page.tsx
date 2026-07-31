@@ -6,7 +6,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useAuth } from '@/lib/auth';
 import { TopBar } from '@/components/TopBar';
-import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable } from '@/components/ui';
+import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable, NonCertBadge } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
 import {
@@ -371,25 +371,25 @@ export default function RequestsPage() {
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
         {rechecks.length > 0 && (
           <div style={{ marginBottom: 20, padding: 16, background: 'oklch(75% 0.14 80 / 0.08)', border: '1px solid oklch(75% 0.14 80 / 0.28)', borderRadius: 12 }}>
-            <div style={{ font: "800 13px 'Inter'", color: AMBER }}>LIVE MAITRI ERP RECHECKS — {user?.branch}</div>
-            <div style={{ marginTop: 4, font: "500 11px 'Inter'", color: t.textFaint }}>
+            <div style={{ font: "800 15px 'Inter'", color: AMBER }}>LIVE MAITRI ERP RECHECKS — {user?.branch}</div>
+            <div style={{ marginTop: 4, font: "500 13px 'Inter'", color: t.textFaint }}>
               These are stones blocked by the morning Excel snapshot. Check Maitri ERP now; this verification does not rewrite the daily stock file.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 12 }}>
               {rechecks.map((recheck) => (
                 <div key={recheck.id} style={{ display: 'grid', gridTemplateColumns: '160px minmax(130px,1fr) 120px minmax(340px,auto)', gap: 10, alignItems: 'center', padding: '9px 10px', background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Copyable value={recheck.barcode} style={{ font: "800 11px 'JetBrains Mono'", color: t.text }} />
+                    <Copyable value={recheck.barcode} style={{ font: "800 13px 'JetBrains Mono'", color: t.text }} />
                   </div>
-                  <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>
+                  <div style={{ font: "600 12.5px 'Inter'", color: t.textMuted }}>
                     {recheck.salesRepName || 'Sales rep'} · snapshot {recheck.snapshot.stockStatus?.replaceAll('_', ' ') || 'missing'}
                   </div>
-                  <div style={{ font: "600 10px 'Inter'", color: t.textFaint }}>{timeAgo(recheck.requestedAt)}</div>
+                  <div style={{ font: "600 12px 'Inter'", color: t.textFaint }}>{timeAgo(recheck.requestedAt)}</div>
                   <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button onClick={() => resolveRecheck(recheck, { decision: 'available', note: 'Released and available in live Maitri ERP' })} style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 9.5px 'Inter'" }}>Available now</button>
-                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_hold' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>Still on hold</button>
-                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_memo' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>On memo</button>
-                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'in_transit' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 9.5px 'Inter'" }}>In transit</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'available', note: 'Released and available in live Maitri ERP' })} style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 11.5px 'Inter'" }}>Available now</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_hold' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 11.5px 'Inter'" }}>Still on hold</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'on_memo' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 11.5px 'Inter'" }}>On memo</button>
+                    <button onClick={() => resolveRecheck(recheck, { decision: 'unavailable', liveStatus: 'in_transit' })} style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: AMBER, cursor: 'pointer', font: "700 11.5px 'Inter'" }}>In transit</button>
                   </div>
                 </div>
               ))}
@@ -400,8 +400,8 @@ export default function RequestsPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 14, marginBottom: 22 }}>
           {statCards.map((c) => (
             <div key={c.label} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ font: "700 26px 'JetBrains Mono'", color: c.warn ? RED : c.good ? ACCENT : t.text }}>{c.value}</div>
-              <div style={{ font: "500 11.5px 'Inter'", color: t.textFaint, marginTop: 4 }}>{c.label}</div>
+              <div style={{ font: "700 28px 'JetBrains Mono'", color: c.warn ? RED : c.good ? ACCENT : t.text }}>{c.value}</div>
+              <div style={{ font: "500 13.5px 'Inter'", color: t.textFaint, marginTop: 4 }}>{c.label}</div>
             </div>
           ))}
         </div>
@@ -436,9 +436,9 @@ export default function RequestsPage() {
                   >
                     <Avatar name={group.label} color={avatarColor(groupIndex)} size={30} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "800 13px 'Inter'", color: groupAccent(group.label), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
+                      <div style={{ font: "800 15px 'Inter'", color: groupAccent(group.label), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
                     </div>
-                    <div style={{ font: "600 11.5px 'Inter'", color: t.textFaint, textAlign: 'right' }}>
+                    <div style={{ font: "600 13.5px 'Inter'", color: t.textFaint, textAlign: 'right' }}>
                       {group.requests.length} request{group.requests.length === 1 ? '' : 's'} / {groupStoneCount} stone{groupStoneCount === 1 ? '' : 's'}
                     </div>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2" style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', justifySelf: 'center' }}>
@@ -460,29 +460,29 @@ export default function RequestsPage() {
                                 onClick={(event) => { event.stopPropagation(); confirmResolution(r.id); }}
                                 disabled={!canResolveItems(r) || Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed)}
                                 title="Confirm the request with the items currently checked"
-                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.bgSide : ACCENT, color: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.textFaint : '#0a0e0d', cursor: !canResolveItems(r) || detail?.resolutionConfirmed || r.resolutionConfirmed ? 'not-allowed' : 'pointer', font: "800 11px 'Inter'" }}
+                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.bgSide : ACCENT, color: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.textFaint : '#0a0e0d', cursor: !canResolveItems(r) || detail?.resolutionConfirmed || r.resolutionConfirmed ? 'not-allowed' : 'pointer', font: "800 13px 'Inter'" }}
                               >
                                 {detail?.resolutionConfirmed || r.resolutionConfirmed ? 'Confirmed' : 'Confirm'}
                               </button>
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                                  <div style={{ font: "800 15px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.rep.name} <span style={{ color: t.textFaint, fontSize: 12 }}>Request #{r.id}</span></div>
+                                  <div style={{ font: "800 17px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.rep.name} <span style={{ color: t.textFaint, fontSize: 12 }}>Request #{r.id}</span></div>
                                   <RequestTypeBadge label={requestTypeLabel(r.requestType)} styleInfo={requestTypeStyle(r.requestType)} />
                                 </div>
-                                <div style={{ font: "500 11.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
+                                <div style={{ font: "500 13.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
                                   {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}` : requestScopeLabel(r.requestScope)}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
                                 </div>
                               </div>
-                              <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>
-                              <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint }}>{timeAgo(r.requestedAt)}</div>
-                              <div style={{ font: "700 11px Arial, sans-serif", color: t.textMuted, lineHeight: 1.4 }}>
+                              <div style={{ font: "600 14px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>
+                              <div style={{ font: "400 13.5px 'Inter'", color: t.textFaint }}>{timeAgo(r.requestedAt)}</div>
+                              <div style={{ font: "700 13px Arial, sans-serif", color: t.textMuted, lineHeight: 1.4 }}>
                                 {r.requestScope !== 'cert_only' && <div>STN {r.stoneFoundCount}/{r.stoneCount}</div>}
                                 {r.requestScope !== 'stone_only' && <div>CERT {r.certFoundCount}/{r.stoneCount}</div>}
                               </div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                                 <StatusBadge status={r.status} />
-                                {r.deliveryRoute === 'customer_ship' && !documents.paperworkComplete && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
-                                {r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
+                                {r.deliveryRoute === 'customer_ship' && !documents.paperworkComplete && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
+                                {r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
                                 {r.hasDuplicate && <DuplicateBadge reps={[]} />}
                               </div>
                             </div>
@@ -491,52 +491,52 @@ export default function RequestsPage() {
                               <div style={{ borderTop: `1px solid ${t.border}`, background: t.bgSide, overflowX: 'auto' }}>
                                 {scanMessage && (
                                   <div style={{ padding: '10px 18px', borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
-                                    <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{scanMessage}</span>
+                                    <span style={{ font: "600 13px 'Inter'", color: t.textFaint }}>{scanMessage}</span>
                                   </div>
                                 )}
                                 {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) && (
                                   <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 9, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                      <span style={{ font: "700 12px 'Inter'", color: t.text }}>Physical route: {r.fulfillmentBranch}{' → '}{r.deliveryBranch}</span>
-                                      <span style={{ font: "600 11px 'Inter'", color: t.textMuted }}>{r.deliveryRoute?.replaceAll('_', ' ')}</span>
-                                      <span style={{ font: "700 10.5px 'Inter'", color: t.textFaint }}>Movement: {(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}</span>
+                                      <span style={{ font: "700 14px 'Inter'", color: t.text }}>Physical route: {r.fulfillmentBranch}{' → '}{r.deliveryBranch}</span>
+                                      <span style={{ font: "600 13px 'Inter'", color: t.textMuted }}>{r.deliveryRoute?.replaceAll('_', ' ')}</span>
+                                      <span style={{ font: "700 12.5px 'Inter'", color: t.textFaint }}>Movement: {(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}</span>
                                       {transferNext(r, allChecked) && (
-                                        <button onClick={() => updateTransfer(r.id, transferNext(r, allChecked)!.action)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 11px 'Inter'" }}>
+                                        <button onClick={() => updateTransfer(r.id, transferNext(r, allChecked)!.action)} style={{ padding: '8px 12px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 13px 'Inter'" }}>
                                           {transferNext(r, allChecked)!.label}
                                         </button>
                                       )}
-                                      {['packed', 'ready_for_rep'].includes(r.transferStatus || 'awaiting_source') && !allChecked && <span style={{ font: "700 11px 'Inter'", color: t.textFaint }}>Confirm required items below before final delivery.</span>}
+                                      {['packed', 'ready_for_rep'].includes(r.transferStatus || 'awaiting_source') && !allChecked && <span style={{ font: "700 13px 'Inter'", color: t.textFaint }}>Confirm required items below before final delivery.</span>}
                                     </div>
 
                                     {r.crossBranch && (
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
-                                        <span style={{ font: "800 10.5px 'Inter'", color: t.text }}>MAITRI ERP DIGITAL BT</span>
-                                        <span style={{ font: "700 10.5px 'Inter'", color: r.erpTransferConfirmed ? ACCENT : AMBER }}>
+                                        <span style={{ font: "800 12.5px 'Inter'", color: t.text }}>MAITRI ERP DIGITAL BT</span>
+                                        <span style={{ font: "700 12.5px 'Inter'", color: r.erpTransferConfirmed ? ACCENT : AMBER }}>
                                           {r.fulfillmentBranch} issue: {r.erpTransferConfirmed ? 'completed' : 'waiting'}
                                         </span>
                                         {!r.erpTransferConfirmed && user?.branch === r.fulfillmentBranch && (
                                           <>
-                                            <button onClick={() => confirmErpTransfer(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: AMBER, color: '#0a0e0d', cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Confirm ERP BT issued</button>
-                                            <button onClick={() => rejectErpTransfer(r)} style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${RED}`, background: 'transparent', color: RED, cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Cannot issue BT</button>
+                                            <button onClick={() => confirmErpTransfer(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: AMBER, color: '#0a0e0d', cursor: 'pointer', font: "800 12.5px 'Inter'" }}>Confirm ERP BT issued</button>
+                                            <button onClick={() => rejectErpTransfer(r)} style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${RED}`, background: 'transparent', color: RED, cursor: 'pointer', font: "800 12.5px 'Inter'" }}>Cannot issue BT</button>
                                           </>
                                         )}
                                         <span style={{ color: t.textFaint }}>→</span>
-                                        <span style={{ font: "700 10.5px 'Inter'", color: r.erpTransferReceived ? ACCENT : r.erpReceiveRequested ? AMBER : t.textFaint }}>
+                                        <span style={{ font: "700 12.5px 'Inter'", color: r.erpTransferReceived ? ACCENT : r.erpReceiveRequested ? AMBER : t.textFaint }}>
                                           {r.deliveryBranch} receipt: {r.erpTransferReceived ? 'completed' : r.erpReceiveRequested ? 'requested by sales rep' : 'not requested'}
                                         </span>
                                         {r.erpTransferConfirmed && !r.erpTransferReceived && user?.branch === r.deliveryBranch && (
-                                          <button onClick={() => confirmErpReceived(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: r.erpReceiveRequested ? AMBER : ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Receive ERP BT now</button>
+                                          <button onClick={() => confirmErpReceived(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: r.erpReceiveRequested ? AMBER : ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 12.5px 'Inter'" }}>Receive ERP BT now</button>
                                         )}
                                       </div>
                                     )}
 
                                     {r.deliveryRoute === 'customer_ship' && (
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                        <span style={{ font: "800 10px 'Inter'", color: documents.paperworkComplete ? ACCENT : AMBER }}>Step 1 paperwork: {documents.paperworkComplete ? r.paperworkType : 'pending'}</span>
-                                        {r.hasPaperwork && <button onClick={() => openPaperwork(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 10px 'Inter'" }}>Open paperwork</button>}
-                                        <span style={{ font: "800 10px 'Inter'", color: r.hasLabel ? ACCENT : AMBER }}>Step 2 label: {r.hasLabel ? 'uploaded' : 'pending'}</span>
-                                        {r.hasLabel && <button onClick={() => openShippingLabel(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 10px 'Inter'" }}>Open shipping label</button>}
-                                        {strictDocuments && r.crossBranch && !r.erpTransferReceived && <span style={{ font: "700 10px 'Inter'", color: AMBER }}>ERP receipt is required before customer paperwork and shipment.</span>}
+                                        <span style={{ font: "800 12px 'Inter'", color: documents.paperworkComplete ? ACCENT : AMBER }}>Step 1 paperwork: {documents.paperworkComplete ? r.paperworkType : 'pending'}</span>
+                                        {r.hasPaperwork && <button onClick={() => openPaperwork(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 12px 'Inter'" }}>Open paperwork</button>}
+                                        <span style={{ font: "800 12px 'Inter'", color: r.hasLabel ? ACCENT : AMBER }}>Step 2 label: {r.hasLabel ? 'uploaded' : 'pending'}</span>
+                                        {r.hasLabel && <button onClick={() => openShippingLabel(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 12px 'Inter'" }}>Open shipping label</button>}
+                                        {strictDocuments && r.crossBranch && !r.erpTransferReceived && <span style={{ font: "700 12px 'Inter'", color: AMBER }}>ERP receipt is required before customer paperwork and shipment.</span>}
                                       </div>
                                     )}
                                   </div>
@@ -558,14 +558,14 @@ export default function RequestsPage() {
                                       <Check checked={allFound} onClick={() => checkAll(r.id, !allFound)} disabled={!canResolveItems(r)} size={18} />
                                       <span
                                         onClick={() => (canResolveItems(r) ? checkAll(r.id, !allFound) : undefined)}
-                                        style={{ font: "800 11px 'Inter'", color: canResolveItems(r) ? t.text : t.textFainter, cursor: canResolveItems(r) ? 'pointer' : 'default' }}
+                                        style={{ font: "800 13px 'Inter'", color: canResolveItems(r) ? t.text : t.textFainter, cursor: canResolveItems(r) ? 'pointer' : 'default' }}
                                       >
                                         Mark all found
                                       </span>
                                     </div>
                                   );
                                 })()}
-                                <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 11.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 13.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
                                   <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} size={18} /></div>
                                   <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} size={18} /></div>
                                   <div title="Mark every requested item returned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>RET</span><Check checked={detail.stones.every((stone) => stone.returned)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.returned), 'returned')} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" size={18} /></div>
@@ -576,16 +576,16 @@ export default function RequestsPage() {
                                     <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} />
                                     <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} />
                                     <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" />
-                                    <div style={{ font: "700 14px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                    <div style={{ font: "700 16px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <Copyable value={s.barcode} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                                       {s.duplicate && <span title={`Also held by: ${s.duplicateWith?.join(', ')}`} style={{ color: RED, flex: 'none' }}>!</span>}
                                     </div>
-                                    <div style={{ font: "700 14px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.item_type === 'jewelry' ? (s.item || s.category || 'Jewelry') : (s.shape || '-')}</div>
-                                    <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.item_type === 'jewelry' ? `${fmtCarat(s.carat)} d.cts` : fmtCarat(s.carat)}</div>
-                                    <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.color || '-'}</div>
-                                    <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.clarity || '-'}</div>
-                                    <div style={{ font: "700 13.5px Arial, sans-serif", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {s.cert_no ? <Copyable value={s.cert_no} /> : '-'}
+                                    <div style={{ font: "700 16px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.item_type === 'jewelry' ? (s.item || s.category || 'Jewelry') : (s.shape || '-')}</div>
+                                    <div style={{ font: "700 16px Arial, sans-serif", color: t.text }}>{s.item_type === 'jewelry' ? `${fmtCarat(s.carat)} d.cts` : fmtCarat(s.carat)}</div>
+                                    <div style={{ font: "700 16px Arial, sans-serif", color: t.text }}>{s.color || '-'}</div>
+                                    <div style={{ font: "700 16px Arial, sans-serif", color: t.text }}>{s.clarity || '-'}</div>
+                                    <div style={{ font: "700 15.5px Arial, sans-serif", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {s.cert_no ? <Copyable value={s.cert_no} /> : <NonCertBadge />}
                                     </div>
                                   </div>
                                 ))}
@@ -609,7 +609,7 @@ export default function RequestsPage() {
 
 function Pill({ active, onClick, children, t }: { active: boolean; onClick: () => void; children: React.ReactNode; t: import('@/lib/theme').Theme }) {
   return (
-    <button onClick={onClick} style={{ cursor: 'pointer', font: "600 11.5px 'Inter'", padding: '6px 13px', borderRadius: 20, background: active ? 'oklch(78% 0.13 240 / 0.18)' : t.bgCard, color: active ? ACCENT : t.textMuted, border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.borderLight}` }}>
+    <button onClick={onClick} style={{ cursor: 'pointer', font: "600 13.5px 'Inter'", padding: '6px 13px', borderRadius: 20, background: active ? 'oklch(78% 0.13 240 / 0.18)' : t.bgCard, color: active ? ACCENT : t.textMuted, border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.borderLight}` }}>
       {children}
     </button>
   );
@@ -617,12 +617,12 @@ function Pill({ active, onClick, children, t }: { active: boolean; onClick: () =
 
 function RequestTypeBadge({ label, styleInfo }: { label: string; styleInfo: { bg: string; border: string; text: string } }) {
   return (
-    <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', minHeight: 26, padding: '4px 11px', borderRadius: 7, background: styleInfo.bg, border: `1px solid ${styleInfo.border}`, color: styleInfo.text, font: "800 13px 'Inter'", letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+    <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', minHeight: 26, padding: '4px 11px', borderRadius: 7, background: styleInfo.bg, border: `1px solid ${styleInfo.border}`, color: styleInfo.text, font: "800 15px 'Inter'", letterSpacing: '0.02em', textTransform: 'uppercase' }}>
       {label}
     </span>
   );
 }
 
 function Empty({ children, t }: { children: React.ReactNode; t: import('@/lib/theme').Theme }) {
-  return <div style={{ padding: 60, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFainter }}>{children}</div>;
+  return <div style={{ padding: 60, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFainter }}>{children}</div>;
 }

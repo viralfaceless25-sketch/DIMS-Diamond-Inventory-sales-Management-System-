@@ -35,13 +35,13 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0e0d', padding: 20 }}>
       <div style={{ width: '100%', maxWidth: 380 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, justifyContent: 'center' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 18px 'Inter'", color: '#0a0e0d' }}>D</div>
-          <div style={{ font: "700 20px 'Inter'", color: '#fff' }}>Diamond ERP</div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 20px 'Inter'", color: '#0a0e0d' }}>D</div>
+          <div style={{ font: "700 22px 'Inter'", color: '#fff' }}>Diamond ERP</div>
         </div>
 
         <div style={{ background: '#111a17', border: '1px solid #182420', borderRadius: 14, padding: 28 }}>
-          <div style={{ font: "600 15px 'Inter'", color: '#fff', marginBottom: 4 }}>Sign in</div>
-          <div style={{ font: "400 12.5px 'Inter'", color: 'oklch(55% 0.01 150)', marginBottom: 22 }}>
+          <div style={{ font: "600 17px 'Inter'", color: '#fff', marginBottom: 4 }}>Sign in</div>
+          <div style={{ font: "400 14.5px 'Inter'", color: 'oklch(55% 0.01 150)', marginBottom: 22 }}>
             Inventory staff and sales reps use the same login.
           </div>
 
@@ -67,7 +67,7 @@ export default function LoginPage() {
           />
 
           {error && (
-            <div style={{ marginTop: 14, font: "500 12px 'Inter'", color: 'oklch(70% 0.17 30)', background: 'oklch(70% 0.17 30 / 0.12)', border: '1px solid oklch(70% 0.17 30 / 0.3)', borderRadius: 8, padding: '9px 12px' }}>
+            <div style={{ marginTop: 14, font: "500 14px 'Inter'", color: 'oklch(70% 0.17 30)', background: 'oklch(70% 0.17 30 / 0.12)', border: '1px solid oklch(70% 0.17 30 / 0.3)', borderRadius: 8, padding: '9px 12px' }}>
               {error}
             </div>
           )}
@@ -84,7 +84,7 @@ export default function LoginPage() {
               cursor: submitting || !email || !password ? 'default' : 'pointer',
               background: submitting || !email || !password ? '#1c2924' : ACCENT,
               color: submitting || !email || !password ? 'oklch(55% 0.01 150)' : '#0a0e0d',
-              font: "600 13.5px 'Inter'",
+              font: "600 15.5px 'Inter'",
               transition: 'background 0.12s',
             }}
           >
@@ -99,7 +99,7 @@ export default function LoginPage() {
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
-  font: "600 11px 'Inter'",
+  font: "600 13px 'Inter'",
   color: 'oklch(60% 0.01 150)',
   marginBottom: 7,
   letterSpacing: '0.02em',
@@ -112,6 +112,6 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 9,
   padding: '10px 13px',
   color: '#fff',
-  font: "400 13.5px 'Inter'",
+  font: "400 15.5px 'Inter'",
   outline: 'none',
 };

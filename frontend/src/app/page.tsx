@@ -15,7 +15,7 @@ export default function Home() {
   }, [user, loading, router]);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'oklch(60% 0.01 150)', font: "500 14px 'Inter', sans-serif" }}>
+    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'oklch(60% 0.01 150)', font: "500 16px 'Inter', sans-serif" }}>
       Loading…
     </div>
   );

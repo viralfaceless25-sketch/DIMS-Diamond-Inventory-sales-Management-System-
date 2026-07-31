@@ -60,7 +60,7 @@ function Choice({
 }) {
   return (
     <div>
-      <div style={{ font: "700 11px 'Inter'", marginBottom: 7 }}>{label}</div>
+      <div style={{ font: "700 13px 'Inter'", marginBottom: 7 }}>{label}</div>
       <div style={{ display: 'flex', gap: 7 }}>
         {[true, false].map((choice) => (
           <button
@@ -74,7 +74,7 @@ function Choice({
               border: `1px solid ${value === choice ? ACCENT : '#d9d7d0'}`,
               background: value === choice ? 'oklch(78% 0.13 240 / 0.16)' : 'transparent',
               color: value === choice ? ACCENT : 'inherit',
-              font: "700 12px 'Inter'",
+              font: "700 14px 'Inter'",
               cursor: 'pointer',
             }}
           >
@@ -101,7 +101,7 @@ function StatusPill({ status }: { status: ReceiptStatus }) {
       background: color.replace(')', ' / 0.12)'),
       borderRadius: 20,
       padding: '4px 9px',
-      font: "700 10.5px 'Inter'",
+      font: "700 12.5px 'Inter'",
       whiteSpace: 'nowrap',
     }}>
       {status}
@@ -133,10 +133,10 @@ function CandidateCard({
         color: 'inherit',
       }}
     >
-      <div style={{ font: "700 12px 'Inter'" }}>
+      <div style={{ font: "700 14px 'Inter'" }}>
         Request #{candidate.requestId} · Give to {candidate.rep.name}
       </div>
-      <div style={{ font: "500 11px 'Inter'", opacity: 0.67, marginTop: 4 }}>
+      <div style={{ font: "500 13px 'Inter'", opacity: 0.67, marginTop: 4 }}>
         {candidate.sourceBranch} → {candidate.destinationBranch} · {candidate.requestScope.replaceAll('_', ' ')}
       </div>
     </button>
@@ -559,25 +559,25 @@ export default function ReceivingPage() {
     borderRadius: 8,
     outline: 'none',
     padding: '10px 12px',
-    font: "600 13px 'Inter'",
+    font: "600 15px 'Inter'",
   };
 
   return (
     <>
       <div style={{ height: 64, flex: 'none', padding: '0 26px', display: 'flex', alignItems: 'center', gap: 12, background: t.bgSide, borderBottom: `1px solid ${t.border}` }}>
-        <div style={{ font: "700 16px 'Inter'" }}>Receive Shipments</div>
-        <span style={{ padding: '5px 10px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 11px 'Inter'" }}>
+        <div style={{ font: "700 18px 'Inter'" }}>Receive Shipments</div>
+        <span style={{ padding: '5px 10px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 13px 'Inter'" }}>
           Receiving at {branch}
         </span>
         <div style={{ flex: 1 }} />
-        <div style={{ font: "500 11px 'Inter'", color: t.textFaint }}>
+        <div style={{ font: "500 13px 'Inter'", color: t.textFaint }}>
           Physical receipt only · Maitri ERP BT stays separate
         </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 26 }}>
         {message && (
-          <div role="status" style={{ marginBottom: 14, padding: '11px 13px', borderRadius: 9, background: 'oklch(78% 0.13 240 / 0.12)', border: `1px solid ${ACCENT.replace(')', ' / 0.3)')}`, color: t.text, font: "600 12px 'Inter'" }}>
+          <div role="status" style={{ marginBottom: 14, padding: '11px 13px', borderRadius: 9, background: 'oklch(78% 0.13 240 / 0.12)', border: `1px solid ${ACCENT.replace(')', ' / 0.3)')}`, color: t.text, font: "600 14px 'Inter'" }}>
             {message}
           </div>
         )}
@@ -585,8 +585,8 @@ export default function ReceivingPage() {
         <div style={{ ...card, padding: 18, marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 360px' }}>
-              <div style={{ font: "700 15px 'Inter'", marginBottom: 4 }}>Scan received stone or certificate</div>
-              <div style={{ font: "500 11px 'Inter'", color: t.textFaint, marginBottom: 12 }}>
+              <div style={{ font: "700 17px 'Inter'", marginBottom: 4 }}>Scan received stone or certificate</div>
+              <div style={{ font: "500 13px 'Inter'", color: t.textFaint, marginBottom: 12 }}>
                 The same barcode is used for both. Scan once, then mark exactly what arrived.
               </div>
               <form onSubmit={findBarcode} style={{ display: 'flex', gap: 8 }}>
@@ -601,10 +601,10 @@ export default function ReceivingPage() {
                   autoComplete="off"
                   style={{ ...inputStyle, flex: 1, fontSize: 16, letterSpacing: '0.03em' }}
                 />
-                <button type="submit" disabled={scanLoading || !barcode.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12px 'Inter'", cursor: 'pointer', opacity: scanLoading ? 0.55 : 1 }}>
+                <button type="submit" disabled={scanLoading || !barcode.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14px 'Inter'", cursor: 'pointer', opacity: scanLoading ? 0.55 : 1 }}>
                   {scanLoading ? 'Checking…' : 'Find request'}
                 </button>
-                <button type="button" onClick={() => openBatch(barcode.trim() || undefined)} style={{ padding: '0 16px', borderRadius: 8, border: `1px solid ${ACCENT.replace(')', ' / 0.5)')}`, background: 'transparent', color: ACCENT, font: "800 12px 'Inter'", cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <button type="button" onClick={() => openBatch(barcode.trim() || undefined)} style={{ padding: '0 16px', borderRadius: 8, border: `1px solid ${ACCENT.replace(')', ' / 0.5)')}`, background: 'transparent', color: ACCENT, font: "800 14px 'Inter'", cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   Scan multiple
                 </button>
               </form>
@@ -613,7 +613,7 @@ export default function ReceivingPage() {
                 <div style={{ marginTop: 14 }}>
                   {lookup.candidates.length > 0 ? (
                     <>
-                      <div style={{ font: "700 11px 'Inter'", marginBottom: 7 }}>
+                      <div style={{ font: "700 13px 'Inter'", marginBottom: 7 }}>
                         {lookup.candidates.length === 1 ? 'Matched request' : 'Choose the correct request'}
                       </div>
                       <div style={{ display: 'grid', gap: 7 }}>
@@ -632,7 +632,7 @@ export default function ReceivingPage() {
                     </>
                   ) : (
                     <div>
-                      <div style={{ font: "700 11px 'Inter'", marginBottom: 7 }}>Sending branch</div>
+                      <div style={{ font: "700 13px 'Inter'", marginBottom: 7 }}>Sending branch</div>
                       <select value={sourceBranch} onChange={(event) => setSourceBranch(event.target.value)} style={{ ...inputStyle, minWidth: 180 }}>
                         <option value="">Select branch</option>
                         {BRANCHES.filter((item) => item !== branch).map((item) => <option key={item}>{item}</option>)}
@@ -640,7 +640,7 @@ export default function ReceivingPage() {
                     </div>
                   )}
                   {lookup.previousReceipts.length > 0 && (
-                    <div style={{ marginTop: 10, color: AMBER, font: "600 11px 'Inter'" }}>
+                    <div style={{ marginTop: 10, color: AMBER, font: "600 13px 'Inter'" }}>
                       Previously scanned here: {lookup.previousReceipts.map((row) => componentSummary(row.stoneReceived, row.certReceived)).join('; ')}
                     </div>
                   )}
@@ -667,7 +667,7 @@ export default function ReceivingPage() {
                 type="button"
                 disabled={!canSave || saving}
                 onClick={() => createReceipt()}
-                style={{ width: '100%', marginTop: 12, padding: '11px 16px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12.5px 'Inter'", cursor: canSave ? 'pointer' : 'not-allowed', opacity: canSave && !saving ? 1 : 0.42 }}
+                style={{ width: '100%', marginTop: 12, padding: '11px 16px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14.5px 'Inter'", cursor: canSave ? 'pointer' : 'not-allowed', opacity: canSave && !saving ? 1 : 0.42 }}
               >
                 {saving ? 'Saving…' : selectedCandidate ? `Save · Give to ${selectedCandidate.rep.name}` : 'Save receipt'}
               </button>
@@ -697,7 +697,7 @@ export default function ReceivingPage() {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1080 }}>
               <thead>
-                <tr style={{ color: t.textFaint, font: "700 10px 'Inter'", textAlign: 'left' }}>
+                <tr style={{ color: t.textFaint, font: "700 12px 'Inter'", textAlign: 'left' }}>
                   {['Time', 'Barcode', 'Stone', 'Cert', 'From', 'Request', 'Give to', 'Status', 'Action'].map((label) => (
                     <th key={label} style={{ padding: '11px 13px', borderBottom: `1px solid ${t.border}`, letterSpacing: '0.03em' }}>{label}</th>
                   ))}
@@ -705,13 +705,13 @@ export default function ReceivingPage() {
               </thead>
               <tbody>
                 {!historyLoading && history.length === 0 && (
-                  <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: t.textFaint, font: "500 12px 'Inter'" }}>No shipments were scanned for this day.</td></tr>
+                  <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: t.textFaint, font: "500 14px 'Inter'" }}>No shipments were scanned for this day.</td></tr>
                 )}
                 {historyLoading && (
-                  <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: t.textFaint, font: "500 12px 'Inter'" }}>Loading received shipments…</td></tr>
+                  <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: t.textFaint, font: "500 14px 'Inter'" }}>Loading received shipments…</td></tr>
                 )}
                 {!historyLoading && history.map((row) => (
-                  <tr key={row.id} style={{ font: "600 11.5px 'Inter'", borderBottom: `1px solid ${t.rowBorder}` }}>
+                  <tr key={row.id} style={{ font: "600 13.5px 'Inter'", borderBottom: `1px solid ${t.rowBorder}` }}>
                     <td style={{ padding: '13px' }}>{new Date(row.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</td>
                     <td style={{ padding: '13px', fontWeight: 800 }}><Copyable value={row.barcode} /></td>
                     <td style={{ padding: '13px', color: row.stoneReceived ? GREEN : t.textFaint }}>{row.stoneReceived ? 'Yes' : 'No'}</td>
@@ -739,10 +739,10 @@ export default function ReceivingPage() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ ...card, width: 760, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ font: "800 15px 'Inter'" }}>Scan shipment</div>
-              <span style={{ padding: '4px 9px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 10.5px 'Inter'" }}>Receiving at {branch}</span>
+              <div style={{ font: "800 17px 'Inter'" }}>Scan shipment</div>
+              <span style={{ padding: '4px 9px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 12.5px 'Inter'" }}>Receiving at {branch}</span>
               <div style={{ flex: 1 }} />
-              <div style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{batchRows.length} scanned</div>
+              <div style={{ font: "600 13px 'Inter'", color: t.textFaint }}>{batchRows.length} scanned</div>
             </div>
 
             <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.border}` }}>
@@ -755,37 +755,37 @@ export default function ReceivingPage() {
                   autoComplete="off"
                   style={{ ...inputStyle, flex: 1, fontSize: 16, letterSpacing: '0.03em' }}
                 />
-                <button type="submit" disabled={batchScanning || !batchScan.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12px 'Inter'", cursor: 'pointer', opacity: batchScanning || !batchScan.trim() ? 0.55 : 1 }}>
+                <button type="submit" disabled={batchScanning || !batchScan.trim()} style={{ padding: '0 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14px 'Inter'", cursor: 'pointer', opacity: batchScanning || !batchScan.trim() ? 0.55 : 1 }}>
                   {batchScanning ? 'Adding…' : 'Add'}
                 </button>
               </form>
-              <div style={{ font: "500 11px 'Inter'", color: t.textFaint, marginTop: 8 }}>
+              <div style={{ font: "500 13px 'Inter'", color: t.textFaint, marginTop: 8 }}>
                 Each barcode is matched to its own request. Mark exactly what physically arrived, then save the whole batch.
               </div>
             </div>
 
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 20px' }}>
               {batchRows.length === 0 && (
-                <div style={{ padding: 28, textAlign: 'center', color: t.textFaint, font: "500 12px 'Inter'" }}>No barcodes scanned yet.</div>
+                <div style={{ padding: 28, textAlign: 'center', color: t.textFaint, font: "500 14px 'Inter'" }}>No barcodes scanned yet.</div>
               )}
               {batchRows.map((row) => (
                 <div key={row.key} style={{ ...card, padding: 12, marginBottom: 10, opacity: row.saved ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: row.saved ? 0 : 10 }}>
-                    <Copyable value={row.barcode} style={{ font: "800 13px 'Inter'", flex: 1 }} />
-                    {row.saved && <span style={{ color: GREEN, font: "700 11px 'Inter'" }}>Saved ✓</span>}
-                    {row.previousCount > 0 && !row.saved && <span style={{ color: AMBER, font: "600 10.5px 'Inter'" }}>Scanned before</span>}
+                    <Copyable value={row.barcode} style={{ font: "800 15px 'Inter'", flex: 1 }} />
+                    {row.saved && <span style={{ color: GREEN, font: "700 13px 'Inter'" }}>Saved ✓</span>}
+                    {row.previousCount > 0 && !row.saved && <span style={{ color: AMBER, font: "600 12.5px 'Inter'" }}>Scanned before</span>}
                     {!row.saved && <button type="button" onClick={() => removeRow(row.key)} style={{ ...inputStyle, cursor: 'pointer', padding: '4px 9px' }}>Remove</button>}
                   </div>
                   {!row.saved && (
                     <>
                       {row.loading ? (
-                        <div style={{ color: t.textFaint, font: "500 12px 'Inter'" }}>Looking up request…</div>
+                        <div style={{ color: t.textFaint, font: "500 14px 'Inter'" }}>Looking up request…</div>
                       ) : (
                         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                           <div style={{ flex: '1 1 300px' }}>
                             {row.candidates.length > 0 ? (
                               <div style={{ display: 'grid', gap: 6 }}>
-                                <div style={{ font: "700 10.5px 'Inter'", color: t.textFaint }}>{row.candidates.length === 1 ? 'Matched request' : 'Choose the correct request'}</div>
+                                <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint }}>{row.candidates.length === 1 ? 'Matched request' : 'Choose the correct request'}</div>
                                 {row.candidates.map((candidate) => (
                                   <CandidateCard
                                     key={candidate.requestStoneId}
@@ -797,9 +797,9 @@ export default function ReceivingPage() {
                               </div>
                             ) : (
                               <div>
-                                <div style={{ font: "700 10.5px 'Inter'", color: t.textFaint, marginBottom: 6 }}>No open request matched — pick the sending branch</div>
+                                <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, marginBottom: 6 }}>No open request matched — pick the sending branch</div>
                                 {row.elsewhereNote && (
-                                  <div style={{ font: "600 10.5px 'Inter'", color: AMBER, marginBottom: 6 }}>{row.elsewhereNote}</div>
+                                  <div style={{ font: "600 12.5px 'Inter'", color: AMBER, marginBottom: 6 }}>{row.elsewhereNote}</div>
                                 )}
                                 <select value={row.sourceBranch} onChange={(event) => updateRow(row.key, { sourceBranch: event.target.value })} style={{ ...inputStyle, minWidth: 170 }}>
                                   <option value="">Select branch</option>
@@ -814,7 +814,7 @@ export default function ReceivingPage() {
                           </div>
                         </div>
                       )}
-                      {row.error && <div style={{ marginTop: 8, color: RED, font: "600 11px 'Inter'" }}>{row.error}</div>}
+                      {row.error && <div style={{ marginTop: 8, color: RED, font: "600 13px 'Inter'" }}>{row.error}</div>}
                     </>
                   )}
                 </div>
@@ -822,7 +822,7 @@ export default function ReceivingPage() {
             </div>
 
             <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, font: "600 11.5px 'Inter'", color: t.textMuted, cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, font: "600 13.5px 'Inter'", color: t.textMuted, cursor: 'pointer' }}>
                 <input type="checkbox" checked={allowDuplicates} onChange={(event) => setAllowDuplicates(event.target.checked)} />
                 Allow duplicate packages
               </label>
@@ -832,7 +832,7 @@ export default function ReceivingPage() {
                 type="button"
                 disabled={batchSaving || batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length === 0}
                 onClick={saveBatch}
-                style={{ padding: '11px 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12.5px 'Inter'", cursor: 'pointer', opacity: batchSaving ? 0.55 : 1 }}
+                style={{ padding: '11px 18px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14.5px 'Inter'", cursor: 'pointer', opacity: batchSaving ? 0.55 : 1 }}
               >
                 {batchSaving ? 'Saving…' : `Save ${batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length} received`}
               </button>
@@ -844,8 +844,8 @@ export default function ReceivingPage() {
       {editing && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ ...card, width: 430, maxWidth: '100%', padding: 20, boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
-            <div style={{ font: "800 15px 'Inter'" }}>Correct <Copyable value={editing.barcode} /></div>
-            <div style={{ color: t.textFaint, font: "500 11px 'Inter'", marginTop: 4 }}>
+            <div style={{ font: "800 17px 'Inter'" }}>Correct <Copyable value={editing.barcode} /></div>
+            <div style={{ color: t.textFaint, font: "500 13px 'Inter'", marginTop: 4 }}>
               The original scan remains in the audit history.
             </div>
             <div style={{ display: 'flex', gap: 24, marginTop: 18 }}>
@@ -858,10 +858,10 @@ export default function ReceivingPage() {
               </select>
             )}
             <input value={editNote} onChange={(event) => setEditNote(event.target.value)} placeholder="Correction note" maxLength={500} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginTop: 14 }} />
-            {!editStone && !editCert && <div style={{ marginTop: 9, color: RED, font: "600 11px 'Inter'" }}>At least Stone or Cert must be Yes.</div>}
+            {!editStone && !editCert && <div style={{ marginTop: 9, color: RED, font: "600 13px 'Inter'" }}>At least Stone or Cert must be Yes.</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button onClick={() => setEditing(null)} style={{ ...inputStyle, cursor: 'pointer' }}>Cancel</button>
-              <button disabled={!editStone && !editCert} onClick={() => saveCorrection()} style={{ padding: '10px 15px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 12px 'Inter'", cursor: 'pointer', opacity: !editStone && !editCert ? 0.4 : 1 }}>Save correction</button>
+              <button disabled={!editStone && !editCert} onClick={() => saveCorrection()} style={{ padding: '10px 15px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14px 'Inter'", cursor: 'pointer', opacity: !editStone && !editCert ? 0.4 : 1 }}>Save correction</button>
             </div>
           </div>
         </div>

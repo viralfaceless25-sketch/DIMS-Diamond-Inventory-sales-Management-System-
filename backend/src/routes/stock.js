@@ -171,6 +171,9 @@ router.get('/loose', async (req, res, next) => {
     const shapes = csv(req.query.shapes);
     const labs = csv(req.query.labs);
     const statuses = csv(req.query.statuses).map(normalizeStockStatus);
+    // certStatuses=certified,non_cert (either, both, or neither selected —
+    // both/neither means no filter, matching the other chip-row filters).
+    const certStatuses = csv(req.query.certStatuses);
 
     const params = [];
     const conditions = ['snapshot_active = true'];
@@ -200,6 +203,13 @@ router.get('/loose', async (req, res, next) => {
     if (statuses.length) {
       params.push(statuses);
       conditions.push(`coalesce(stock_status, 'available') = ANY($${params.length})`);
+    }
+    if (certStatuses.length === 1) {
+      conditions.push(
+        certStatuses[0] === 'non_cert'
+          ? `(certificate_no IS NULL OR certificate_no = '')`
+          : `(certificate_no IS NOT NULL AND certificate_no <> '')`
+      );
     }
     if (caratMin !== undefined && caratMin !== '') {
       params.push(numericOrNull(caratMin));
@@ -259,6 +269,7 @@ router.get('/jewelry', async (req, res, next) => {
     const goldColors = csv(req.query.goldColors);
     const purities = csv(req.query.purities);
     const statuses = csv(req.query.statuses).map(normalizeStockStatus);
+    const certStatuses = csv(req.query.certStatuses);
 
     const params = [];
     const conditions = ['snapshot_active = true'];
@@ -285,6 +296,13 @@ router.get('/jewelry', async (req, res, next) => {
     if (statuses.length) {
       params.push(statuses);
       conditions.push(`coalesce(stock_status, 'available') = ANY($${params.length})`);
+    }
+    if (certStatuses.length === 1) {
+      conditions.push(
+        certStatuses[0] === 'non_cert'
+          ? `(cert_no IS NULL OR cert_no = '')`
+          : `(cert_no IS NOT NULL AND cert_no <> '')`
+      );
     }
     if (caratMin !== undefined && caratMin !== '') {
       params.push(numericOrNull(caratMin));

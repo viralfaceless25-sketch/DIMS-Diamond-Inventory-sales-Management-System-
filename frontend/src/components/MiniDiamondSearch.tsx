@@ -102,13 +102,13 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
           placeholder="Search diamonds"
           aria-label="Search diamonds"
           autoComplete="off"
-          style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: t.text, font: "500 12px 'Inter'" }}
+          style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: t.text, font: "500 14px 'Inter'" }}
         />
       </div>
       {open && (
         <div style={{ position: 'absolute', zIndex: 30, top: '100%', left: 0, right: 0, marginTop: 6, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 9, boxShadow: '0 14px 34px rgb(0 0 0 / 0.22)', overflow: 'hidden', maxHeight: 328, overflowY: 'auto' }}>
-          {loading && <div style={{ padding: '10px 12px', font: "500 11px 'Inter'", color: t.textFaint }}>Searching…</div>}
-          {!loading && rows.length === 0 && <div style={{ padding: '10px 12px', font: "500 11px 'Inter'", color: t.textFaint }}>No diamonds found.</div>}
+          {loading && <div style={{ padding: '10px 12px', font: "500 13px 'Inter'", color: t.textFaint }}>Searching…</div>}
+          {!loading && rows.length === 0 && <div style={{ padding: '10px 12px', font: "500 13px 'Inter'", color: t.textFaint }}>No diamonds found.</div>}
           {rows.map((stone) => (
             <button
               key={stone.barcode}
@@ -117,13 +117,13 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: `1px solid ${t.border}`, background: 'transparent', cursor: 'pointer', color: t.text }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <Copyable value={stone.barcode} style={{ font: "700 11.5px 'Inter'" }} />
-                <span style={{ font: "700 9px 'Inter'", color: ACCENT }}>{stone.branch}</span>
+                <Copyable value={stone.barcode} style={{ font: "700 13.5px 'Inter'" }} />
+                <span style={{ font: "700 11px 'Inter'", color: ACCENT }}>{stone.branch}</span>
               </div>
-              <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 2 }}>
+              <div style={{ font: "500 12px 'Inter'", color: t.textFaint, marginTop: 2 }}>
                 {[stone.shape, stone.carat != null ? `${fmtCarat(stone.carat)}ct` : null, stone.color, stone.clarity].filter(Boolean).join(' · ') || '—'}
               </div>
-              <div style={{ font: "600 9.5px 'Inter'", color: t.textMuted, marginTop: 2 }}>{availabilityText(stone.availability)}</div>
+              <div style={{ font: "600 11.5px 'Inter'", color: t.textMuted, marginTop: 2 }}>{availabilityText(stone.availability)}</div>
             </button>
           ))}
         </div>

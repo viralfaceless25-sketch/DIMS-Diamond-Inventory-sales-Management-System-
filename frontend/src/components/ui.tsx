@@ -123,6 +123,28 @@ export function Check({
   );
 }
 
+// A stone with no certificate on file — used wherever a barcode/cert cell
+// would otherwise just show a blank dash, so "this one has no cert" is
+// something inventory/reps notice at a glance, not something they have to
+// infer from an empty cell.
+export function NonCertBadge() {
+  return (
+    <span
+      style={{
+        font: "700 11.5px 'Inter', sans-serif",
+        color: AMBER,
+        background: AMBER.replace(')', ' / 0.14)'),
+        border: `1px solid ${AMBER.replace(')', ' / 0.35)')}`,
+        padding: '2px 7px',
+        borderRadius: 20,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      NON-CERT
+    </span>
+  );
+}
+
 const STATUS_COLORS: Record<string, string> = {
   awaiting: AMBER,
   half_fulfilled: AMBER,
@@ -137,7 +159,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span
       style={{
-        font: "600 10.5px 'Inter', sans-serif",
+        font: "600 12.5px 'Inter', sans-serif",
         color,
         background: `${color.replace(')', ' / 0.16)').replace('oklch(', 'oklch(')}`,
         padding: '3px 10px',
@@ -157,7 +179,7 @@ export function DuplicateBadge({ reps }: { reps: string[] }) {
     <span
       title={label}
       style={{
-        font: "600 10px 'Inter', sans-serif",
+        font: "600 12px 'Inter', sans-serif",
         color: RED,
         background: RED.replace(')', ' / 0.15)'),
         padding: '2px 8px',

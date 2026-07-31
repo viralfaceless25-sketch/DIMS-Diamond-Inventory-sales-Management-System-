@@ -19,7 +19,7 @@ import {
   fulfillmentChoicesFor,
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
-import { Check, Copyable } from '@/components/ui';
+import { Check, Copyable, NonCertBadge } from '@/components/ui';
 
 interface CartItem {
   barcode: string;
@@ -508,8 +508,8 @@ export default function RequestStonesPage() {
         <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'oklch(20% 0.03 150 / 0.72)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ border: `2px dashed ${ACCENT}`, borderRadius: 16, padding: '48px 64px', textAlign: 'center', background: 'oklch(18% 0.02 150 / 0.6)' }}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="1.6" style={{ marginBottom: 12 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
-            <div style={{ font: "700 16px 'Inter'", color: '#fff' }}>Drop PDF to extract for review</div>
-            <div style={{ font: "400 12px 'Inter'", color: 'oklch(75% 0.02 150)', marginTop: 6 }}>Stones are sorted here first; inventory only receives them after you send.</div>
+            <div style={{ font: "700 18px 'Inter'", color: '#fff' }}>Drop PDF to extract for review</div>
+            <div style={{ font: "400 14px 'Inter'", color: 'oklch(75% 0.02 150)', marginTop: 6 }}>Stones are sorted here first; inventory only receives them after you send.</div>
           </div>
         </div>
       )}
@@ -519,35 +519,35 @@ export default function RequestStonesPage() {
         {/* Header row 1: title + invoice + search */}
         <div style={{ padding: '20px 26px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ font: "700 18px 'Inter'", color: t.text }}>Request stones · {branch}</div>
+            <div style={{ font: "700 20px 'Inter'", color: t.text }}>Request stones · {branch}</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input ref={fileRef} type="file" accept="application/pdf" onChange={onInvoiceInput} style={{ display: 'none' }} />
-              <button onClick={() => fileRef.current?.click()} style={{ padding: '9px 15px', borderRadius: 8, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, font: "600 12px 'Inter'", cursor: 'pointer' }}>
+              <button onClick={() => fileRef.current?.click()} style={{ padding: '9px 15px', borderRadius: 8, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, font: "600 14px 'Inter'", cursor: 'pointer' }}>
                 Upload invoice
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 12px', width: 200 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search stock#" style={{ background: 'none', border: 'none', outline: 'none', color: t.text, font: "400 12.5px 'Inter'", width: '100%' }} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search stock#" style={{ background: 'none', border: 'none', outline: 'none', color: t.text, font: "400 14.5px 'Inter'", width: '100%' }} />
               </div>
             </div>
           </div>
 
           {/* Hint that the page is a drop target */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 14, background: t.chipBg, border: `1px dashed ${t.borderLight}`, borderRadius: 9, font: "500 11.5px 'Inter'", color: t.textFaint }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 14, background: t.chipBg, border: `1px dashed ${t.borderLight}`, borderRadius: 9, font: "500 13.5px 'Inter'", color: t.textFaint }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
             Drag an invoice or memo PDF anywhere on this page — it&apos;ll be read, sorted, and held here for review.
           </div>
 
           {/* Extraction spinner */}
           {extracting && (
-            <div style={{ padding: '12px 14px', background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 10, marginBottom: 14, font: "500 12.5px 'Inter'", color: t.textMuted }}>
+            <div style={{ padding: '12px 14px', background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 10, marginBottom: 14, font: "500 14.5px 'Inter'", color: t.textMuted }}>
               Reading {extractName} for review…
             </div>
           )}
 
           {/* Warning (bad file / scanned PDF / nothing found / none available) */}
           {extractWarning && !extracting && (
-            <div style={{ padding: '12px 14px', background: 'oklch(75% 0.14 80 / 0.1)', border: '1px solid oklch(75% 0.14 80 / 0.3)', borderRadius: 10, marginBottom: 14, font: "500 12px 'Inter'", color: AMBER }}>
+            <div style={{ padding: '12px 14px', background: 'oklch(75% 0.14 80 / 0.1)', border: '1px solid oklch(75% 0.14 80 / 0.3)', borderRadius: 10, marginBottom: 14, font: "500 14px 'Inter'", color: AMBER }}>
               {extractWarning}
             </div>
           )}
@@ -557,23 +557,23 @@ export default function RequestStonesPage() {
             <div style={{ padding: 14, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 10, marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
                 <div>
-                  <div style={{ font: "600 12.5px 'Inter'", color: t.text }}>Review {extracted.length} extracted stone{extracted.length === 1 ? '' : 's'} from {extractName}</div>
-                  <div style={{ font: "400 11px 'Inter'", color: t.textFaint, marginTop: 2 }}>
+                  <div style={{ font: "600 14.5px 'Inter'", color: t.text }}>Review {extracted.length} extracted stone{extracted.length === 1 ? '' : 's'} from {extractName}</div>
+                  <div style={{ font: "400 13px 'Inter'", color: t.textFaint, marginTop: 2 }}>
                     {extracted.filter((stone) => isExtractedRequestable(stone)).length} available across {extractedBranches.length} home branch{extractedBranches.length === 1 ? '' : 'es'}
                   </div>
                 </div>
-                <div onClick={() => setExtracted(null)} style={{ cursor: 'pointer', color: t.textFaint, font: "600 15px 'Inter'", padding: '0 4px' }}>×</div>
+                <div onClick={() => setExtracted(null)} style={{ cursor: 'pointer', color: t.textFaint, font: "600 17px 'Inter'", padding: '0 4px' }}>×</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
                 {extracted.map((s) => (
-                  <div key={s.barcode} style={{ display: 'grid', gridTemplateColumns: '110px 42px 70px 55px 50px 60px minmax(0,1fr)', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
+                  <div key={s.barcode} style={{ display: 'grid', gridTemplateColumns: '110px 42px 70px 55px 50px 60px minmax(0,1fr)', gap: 10, alignItems: 'center', font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>
                     <Copyable value={s.barcode} style={{ color: t.text }} />
-                    <span style={{ font: "800 10px 'Inter'", color: t.textMuted }}>{s.stockBranch || s.branch || '—'}</span>
+                    <span style={{ font: "800 12px 'Inter'", color: t.textMuted }}>{s.stockBranch || s.branch || '—'}</span>
                     <span>{s.shape || '—'}</span>
                     <span>{fmtCarat(s.carat)}</span>
                     <span>{s.color || '—'}</span>
                     <span>{s.clarity || '—'}</span>
-                    <span style={{ font: "600 10.5px 'Inter'", color: extractedColor(s), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{extractedReason(s)}</span>
+                    <span style={{ font: "600 12.5px 'Inter'", color: extractedColor(s), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{extractedReason(s)}</span>
                   </div>
                 ))}
               </div>
@@ -581,7 +581,7 @@ export default function RequestStonesPage() {
                 {extractedBranches.map((invoiceBranch) => {
                   const count = extracted.filter((stone) => isExtractedRequestable(stone) && (stone.stockBranch || stone.branch) === invoiceBranch).length;
                   return (
-                    <button key={invoiceBranch} onClick={() => addReviewedToCart(invoiceBranch)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 12px 'Inter'", cursor: 'pointer' }}>
+                    <button key={invoiceBranch} onClick={() => addReviewedToCart(invoiceBranch)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 14px 'Inter'", cursor: 'pointer' }}>
                       Load {count} from {invoiceBranch} into cart
                     </button>
                   );
@@ -592,21 +592,21 @@ export default function RequestStonesPage() {
 
           {unavailableNow.length > 0 && !extracting && (
             <div style={{ padding: 14, background: 'oklch(70% 0.17 30 / 0.1)', border: '1px solid oklch(70% 0.17 30 / 0.34)', borderRadius: 10, marginBottom: 14 }}>
-              <div style={{ font: "600 12.5px 'Inter'", color: RED, marginBottom: 8 }}>
+              <div style={{ font: "600 14.5px 'Inter'", color: RED, marginBottom: 8 }}>
                 ⚠ {unavailableNow.length} item{unavailableNow.length === 1 ? '' : 's'} not available — not sent
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {unavailableNow.map((s) => (
-                  <div key={s.barcode} style={{ display: 'flex', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
+                  <div key={s.barcode} style={{ display: 'flex', gap: 10, alignItems: 'center', font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>
                     <Copyable value={s.barcode} style={{ color: t.text, minWidth: 110 }} />
-                    <span style={{ font: "500 10.5px 'Inter'", color: RED }}>
+                    <span style={{ font: "500 12.5px 'Inter'", color: RED }}>
                       {extractedReason(s)}
                     </span>
                     {['on_hold', 'on_memo', 'in_transit', 'not_in_snapshot'].includes(s.reason || '') && (
                       latestRecheck(s.barcode, s.item_type)?.state === 'pending'
-                        ? <span style={{ font: "700 9.5px 'Inter'", color: AMBER }}>Live recheck pending at {s.stockBranch}</span>
+                        ? <span style={{ font: "700 11.5px 'Inter'", color: AMBER }}>Live recheck pending at {s.stockBranch}</span>
                         : (
-                          <button onClick={(event) => requestLiveRecheck(event, s, s.item_type)} style={{ padding: '4px 7px', borderRadius: 5, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: ACCENT, font: "700 9.5px 'Inter'", cursor: 'pointer' }}>
+                          <button onClick={(event) => requestLiveRecheck(event, s, s.item_type)} style={{ padding: '4px 7px', borderRadius: 5, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: ACCENT, font: "700 11.5px 'Inter'", cursor: 'pointer' }}>
                             Ask {s.stockBranch} to recheck ERP
                           </button>
                         )
@@ -621,11 +621,11 @@ export default function RequestStonesPage() {
 
         {/* Cart review stays above the table, so selected stones never get lost while scrolling stock. */}
         <div style={{ margin: '0 26px 10px', padding: '10px 12px', background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 9, display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <div style={{ flex: 'none' }}><div style={{ font: "700 12.5px 'Inter'", color: t.text }}>Request cart</div><div style={{ font: "500 10.5px 'Inter'", color: t.textFaint }}>{cart.length} selected</div></div>
-          <div style={{ display: 'flex', gap: 5, flex: 'none', alignItems: 'center' }}><textarea value={barcodeEntry} onChange={(e) => setBarcodeEntry(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addBarcodeToCart(); } }} placeholder="Paste stock details or barcode" aria-label="Paste stock details or barcode" style={{ width: 205, minHeight: 34, maxHeight: 64, resize: 'vertical', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 6, padding: '7px 8px', color: t.text, font: "500 11px Arial, sans-serif", outline: 'none' }} /><button onClick={addBarcodeToCart} style={{ padding: '7px 9px', borderRadius: 6, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 11px 'Inter'", cursor: 'pointer' }}>Extract</button></div>
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', minWidth: 0, flex: 1, padding: '1px 0' }}>{cart.length === 0 ? <span style={{ font: "500 11px 'Inter'", color: t.textFaint }}>Select stones from the table.</span> : sortStonesClient(cart).map((c) => <div key={c.barcode} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', whiteSpace: 'nowrap', background: t.chipBg, border: `1px solid ${t.borderLight}`, borderRadius: 6 }}><span style={{ font: "700 10.5px Arial, sans-serif", color: t.text }}>{c.barcode}</span><button onClick={() => setCart((p) => p.filter((x) => x.barcode !== c.barcode))} aria-label={`Remove ${c.barcode}`} style={{ cursor: 'pointer', color: t.textFaint, font: "700 14px 'Inter'", padding: 0, background: 'transparent', border: 'none' }}>x</button></div>)}</div>
+          <div style={{ flex: 'none' }}><div style={{ font: "700 14.5px 'Inter'", color: t.text }}>Request cart</div><div style={{ font: "500 12.5px 'Inter'", color: t.textFaint }}>{cart.length} selected</div></div>
+          <div style={{ display: 'flex', gap: 5, flex: 'none', alignItems: 'center' }}><textarea value={barcodeEntry} onChange={(e) => setBarcodeEntry(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addBarcodeToCart(); } }} placeholder="Paste stock details or barcode" aria-label="Paste stock details or barcode" style={{ width: 205, minHeight: 34, maxHeight: 64, resize: 'vertical', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 6, padding: '7px 8px', color: t.text, font: "500 13px Arial, sans-serif", outline: 'none' }} /><button onClick={addBarcodeToCart} style={{ padding: '7px 9px', borderRadius: 6, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 13px 'Inter'", cursor: 'pointer' }}>Extract</button></div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', minWidth: 0, flex: 1, padding: '1px 0' }}>{cart.length === 0 ? <span style={{ font: "500 13px 'Inter'", color: t.textFaint }}>Select stones from the table.</span> : sortStonesClient(cart).map((c) => <div key={c.barcode} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', whiteSpace: 'nowrap', background: t.chipBg, border: `1px solid ${t.borderLight}`, borderRadius: 6 }}><span style={{ font: "700 12.5px Arial, sans-serif", color: t.text }}>{c.barcode}</span><button onClick={() => setCart((p) => p.filter((x) => x.barcode !== c.barcode))} aria-label={`Remove ${c.barcode}`} style={{ cursor: 'pointer', color: t.textFaint, font: "700 16px 'Inter'", padding: 0, background: 'transparent', border: 'none' }}>x</button></div>)}</div>
         </div>
-        {barcodeMsg && <div style={{ margin: '0 26px 8px', font: "500 10.5px 'Inter'", color: barcodeError ? RED : ACCENT }}>{barcodeMsg}</div>}
+        {barcodeMsg && <div style={{ margin: '0 26px 8px', font: "500 12.5px 'Inter'", color: barcodeError ? RED : ACCENT }}>{barcodeMsg}</div>}
         {lookupRecheckItems.length > 0 && (
           <div style={{ margin: '0 26px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {lookupRecheckItems.map((item) => {
@@ -636,7 +636,7 @@ export default function RequestStonesPage() {
                   key={`${item.itemType}:${item.barcode}`}
                   onClick={(event) => requestLiveRecheck(event, item, item.itemType)}
                   disabled={pending || recheckBusy === item.barcode}
-                  style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: pending ? AMBER : t.text, font: "700 10.5px 'Inter'", cursor: pending ? 'default' : 'pointer' }}
+                  style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: pending ? AMBER : t.text, font: "700 12.5px 'Inter'", cursor: pending ? 'default' : 'pointer' }}
                 >
                   {pending ? `${item.barcode}: waiting for ${recheck.homeBranch}` : `Ask home branch to recheck ${item.barcode}`}
                 </button>
@@ -649,12 +649,12 @@ export default function RequestStonesPage() {
         <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', paddingBottom: 26 }}>
           <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', padding: '4px 26px 0' }}>
           {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFaint }}>Loading…</div>
+            <div style={{ padding: 40, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint }}>Loading…</div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFaint }}>No stones match your filters.</div>
+            <div style={{ padding: 40, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint }}>No stones match your filters.</div>
           ) : (
             <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: STOCK_TABLE_COLUMNS, gap: 8, padding: '10px 16px', font: "600 9.5px 'Inter'", color: t.textFaint }}>
+              <div style={{ display: 'grid', gridTemplateColumns: STOCK_TABLE_COLUMNS, gap: 8, padding: '10px 16px', font: "600 11.5px 'Inter'", color: t.textFaint }}>
                 <div></div><div>STOCK #</div><div>BRANCH</div><div>SHAPE</div><div>CARAT</div><div>MEASUREMENTS / RATIO</div><div>COL</div><div>CLTY</div><div>AVAILABILITY</div>
               </div>
               {filtered.map((s) => {
@@ -670,27 +670,29 @@ export default function RequestStonesPage() {
                   <div key={s.barcode} onClick={() => toggleCart(s)} style={{ display: 'grid', gridTemplateColumns: STOCK_TABLE_COLUMNS, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}`, cursor: canRequestAvailability(av) || liveAvailable ? 'pointer' : 'default', background: selected ? 'oklch(78% 0.13 240 / 0.08)' : 'transparent' }}>
                     <Check checked={selected} onClick={() => toggleCart(s)} size={17} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</div>
-                      {s.certificate_no && <div style={{ font: "400 10px 'JetBrains Mono'", color: t.textFaint }}>{s.certificate_no}</div>}
+                      <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</div>
+                      {s.certificate_no
+                        ? <div style={{ font: "400 12px 'JetBrains Mono'", color: t.textFaint }}>{s.certificate_no}</div>
+                        : <div style={{ marginTop: 2 }}><NonCertBadge /></div>}
                     </div>
-                    <div style={{ font: "800 10.5px Arial, sans-serif", color: t.textMuted }}>{s.branch}</div>
-                    <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{s.shape || '—'}</div>
-                    <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{fmtCarat(s.carat)}</div>
-                    <div style={{ font: "600 11px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(s.length_mm, s.width_mm, s.height_mm, s.lw_ratio)}</div>
-                    <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{s.color || '—'}</div>
-                    <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{s.clarity || '—'}</div>
+                    <div style={{ font: "800 12.5px Arial, sans-serif", color: t.textMuted }}>{s.branch}</div>
+                    <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted }}>{s.shape || '—'}</div>
+                    <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{fmtCarat(s.carat)}</div>
+                    <div style={{ font: "600 13px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(s.length_mm, s.width_mm, s.height_mm, s.lw_ratio)}</div>
+                    <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text }}>{s.color || '—'}</div>
+                    <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text }}>{s.clarity || '—'}</div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "600 10.5px 'Inter'", color: liveAvailable ? ACCENT : avColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ font: "600 12.5px 'Inter'", color: liveAvailable ? ACCENT : avColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {liveAvailable ? 'Live ERP: Available' : avText}
                       </div>
                       {canRecheck && !liveAvailable && (
                         recheck?.state === 'pending'
-                          ? <div style={{ font: "700 9px 'Inter'", color: AMBER, marginTop: 3 }}>Recheck pending at {recheck.homeBranch}</div>
+                          ? <div style={{ font: "700 11px 'Inter'", color: AMBER, marginTop: 3 }}>Recheck pending at {recheck.homeBranch}</div>
                           : (
                             <button
                               onClick={(event) => requestLiveRecheck(event, s, 'loose')}
                               disabled={recheckBusy === s.barcode}
-                              style={{ marginTop: 3, padding: 0, border: 'none', background: 'transparent', color: ACCENT, font: "700 9px 'Inter'", cursor: 'pointer', textAlign: 'left' }}
+                              style={{ marginTop: 3, padding: 0, border: 'none', background: 'transparent', color: ACCENT, font: "700 11px 'Inter'", cursor: 'pointer', textAlign: 'left' }}
                             >
                               {recheckBusy === s.barcode ? 'Sending…' : 'Ask home branch to recheck ERP'}
                             </button>
@@ -704,11 +706,11 @@ export default function RequestStonesPage() {
           )}
           {!loading && total > PAGE_SIZE && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-              <span style={{ font: "500 11.5px 'Inter'", color: t.textFaint }}>{total.toLocaleString()} stones</span>
+              <span style={{ font: "500 13.5px 'Inter'", color: t.textFaint }}>{total.toLocaleString()} stones</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button onClick={() => page > 1 && setPage(page - 1)} disabled={page <= 1} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: page <= 1 ? t.textFainter : t.textMuted, font: "600 11px 'Inter'", cursor: page <= 1 ? 'default' : 'pointer' }}>‹ Prev</button>
-                <span style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textFaint, padding: '0 6px' }}>{page} / {totalPages}</span>
-                <button onClick={() => page < totalPages && setPage(page + 1)} disabled={page >= totalPages} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: page >= totalPages ? t.textFainter : t.textMuted, font: "600 11px 'Inter'", cursor: page >= totalPages ? 'default' : 'pointer' }}>Next ›</button>
+                <button onClick={() => page > 1 && setPage(page - 1)} disabled={page <= 1} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: page <= 1 ? t.textFainter : t.textMuted, font: "600 13px 'Inter'", cursor: page <= 1 ? 'default' : 'pointer' }}>‹ Prev</button>
+                <span style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textFaint, padding: '0 6px' }}>{page} / {totalPages}</span>
+                <button onClick={() => page < totalPages && setPage(page + 1)} disabled={page >= totalPages} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: page >= totalPages ? t.textFainter : t.textMuted, font: "600 13px 'Inter'", cursor: page >= totalPages ? 'default' : 'pointer' }}>Next ›</button>
               </div>
             </div>
           )}
@@ -716,11 +718,11 @@ export default function RequestStonesPage() {
         </div>
       </div>
       <div style={{ width: 248, flex: 'none', minHeight: 0, borderLeft: `1px solid ${t.border}`, background: t.bgSide, display: 'flex', flexDirection: 'column', padding: 20 }}>
-        <div style={{ font: "700 14px 'Inter'", color: t.text, marginBottom: 4 }}>Request settings</div>
-        <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint, marginBottom: 16 }}>Choose branch, request scope, and delivery type.</div>
+        <div style={{ font: "700 16px 'Inter'", color: t.text, marginBottom: 4 }}>Request settings</div>
+        <div style={{ font: "400 13.5px 'Inter'", color: t.textFaint, marginBottom: 16 }}>Choose branch, request scope, and delivery type.</div>
 
         <div style={{ display: 'none' }}>
-          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 7 }}>ADD BY BARCODE</div>
+          <div style={{ font: "600 12.5px 'Inter'", color: t.textFaint, marginBottom: 7 }}>ADD BY BARCODE</div>
           <div style={{ display: 'flex', gap: 6 }}>
             <input
               value={barcodeEntry}
@@ -729,22 +731,22 @@ export default function RequestStonesPage() {
                 if (e.key === 'Enter') addBarcodeToCart();
               }}
               placeholder="268140-003A"
-              style={{ minWidth: 0, flex: 1, background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '7px 8px', color: t.text, font: "500 11px 'JetBrains Mono'", outline: 'none' }}
+              style={{ minWidth: 0, flex: 1, background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '7px 8px', color: t.text, font: "500 13px 'JetBrains Mono'", outline: 'none' }}
             />
-            <button onClick={addBarcodeToCart} style={{ padding: '7px 9px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 11px 'Inter'", cursor: 'pointer' }}>Add</button>
+            <button onClick={addBarcodeToCart} style={{ padding: '7px 9px', borderRadius: 7, border: 'none', background: ACCENT, color: '#0a0e0d', font: "700 13px 'Inter'", cursor: 'pointer' }}>Add</button>
           </div>
-          {barcodeMsg && <div style={{ marginTop: 7, font: "500 10.5px 'Inter'", color: barcodeError ? RED : ACCENT }}>{barcodeMsg}</div>}
+          {barcodeMsg && <div style={{ marginTop: 7, font: "500 12.5px 'Inter'", color: barcodeError ? RED : ACCENT }}>{barcodeMsg}</div>}
         </div>
 
         <div style={{ display: 'none' }}>
           {cart.length === 0 ? (
-            <div style={{ font: "400 12px 'Inter'", color: t.textFaint, marginTop: 20, textAlign: 'center' }}>Tap stones to add them here.</div>
+            <div style={{ font: "400 14px 'Inter'", color: t.textFaint, marginTop: 20, textAlign: 'center' }}>Tap stones to add them here.</div>
           ) : (
             sortStonesClient(cart).map((c) => (
               <div key={c.barcode} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 8 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ font: "500 11px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.barcode}</div>
-                  <div style={{ font: "400 10px 'Inter'", color: t.textFaint }}>{c.itemType === 'jewelry' ? `${c.shape || 'Jewelry'} - ${fmtCarat(c.carat)} d.cts` : `${c.color || '-'} - ${c.clarity || '-'} - ${fmtCarat(c.carat)}ct`}</div>
+                  <div style={{ font: "500 13px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.barcode}</div>
+                  <div style={{ font: "400 12px 'Inter'", color: t.textFaint }}>{c.itemType === 'jewelry' ? `${c.shape || 'Jewelry'} - ${fmtCarat(c.carat)} d.cts` : `${c.color || '-'} - ${c.clarity || '-'} - ${fmtCarat(c.carat)}ct`}</div>
                 </div>
                 <button
                   onClick={(e) => {
@@ -752,7 +754,7 @@ export default function RequestStonesPage() {
                     setCart((p) => p.filter((x) => x.barcode !== c.barcode));
                   }}
                   aria-label={`Remove ${c.barcode}`}
-                  style={{ cursor: 'pointer', color: t.textFaint, font: "600 15px 'Inter'", padding: '0 4px', background: 'transparent', border: 'none' }}
+                  style={{ cursor: 'pointer', color: t.textFaint, font: "600 17px 'Inter'", padding: '0 4px', background: 'transparent', border: 'none' }}
                 >
                   x
                 </button>
@@ -762,8 +764,8 @@ export default function RequestStonesPage() {
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${t.border}` }}>
-          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>FULFILLMENT</div>
-          <div style={{ padding: 9, marginBottom: 8, background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8, font: "600 10.5px 'Inter'", color: t.textMuted }}>
+          <div style={{ font: "600 12.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>FULFILLMENT</div>
+          <div style={{ padding: 9, marginBottom: 8, background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8, font: "600 12.5px 'Inter'", color: t.textMuted }}>
             {homeBranch
               ? `Home branch detected automatically: ${homeBranch}. This request will go directly to ${homeBranch} inventory.`
               : 'Add a stone and its home branch will be detected automatically.'}
@@ -775,7 +777,7 @@ export default function RequestStonesPage() {
                 onClick={() => {
                   setFulfillmentChoice(value);
                 }}
-                style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${fulfillmentChoice === value ? ACCENT : t.borderLight}`, background: fulfillmentChoice === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: fulfillmentChoice === value ? ACCENT : t.textMuted, font: "700 11px 'Inter'", cursor: 'pointer' }}
+                style={{ textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: `1px solid ${fulfillmentChoice === value ? ACCENT : t.borderLight}`, background: fulfillmentChoice === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: fulfillmentChoice === value ? ACCENT : t.textMuted, font: "700 13px 'Inter'", cursor: 'pointer' }}
               >
                 {fulfillmentChoiceLabel(value, branch)}
               </button>
@@ -789,7 +791,7 @@ export default function RequestStonesPage() {
                   <button
                     key={candidate}
                     onClick={() => setDeliveryBranch(candidate)}
-                    style={{ padding: '7px 4px', borderRadius: 6, border: `1px solid ${deliveryBranch === candidate ? ACCENT : t.borderLight}`, background: deliveryBranch === candidate ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryBranch === candidate ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer' }}
+                    style={{ padding: '7px 4px', borderRadius: 6, border: `1px solid ${deliveryBranch === candidate ? ACCENT : t.borderLight}`, background: deliveryBranch === candidate ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: deliveryBranch === candidate ? ACCENT : t.textMuted, font: "700 12.5px 'Inter'", cursor: 'pointer' }}
                   >
                     {candidate}
                   </button>
@@ -799,12 +801,12 @@ export default function RequestStonesPage() {
           {deliveryWorkflow && (
             <div style={{ padding: 9, marginBottom: 12, background: 'oklch(70% 0.13 70 / 0.10)', border: '1px solid oklch(70% 0.13 70 / 0.28)', borderRadius: 8 }}>
               {isCrossBranch && <>
-                <div style={{ font: "800 10.5px 'Inter'", color: AMBER }}>ERP BRANCH TRANSFER REQUIRED</div>
-                <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 5 }}>{homeBranch} inventory will be notified to enter the branch transfer in Maitri ERP before packing.</div>
+                <div style={{ font: "800 12.5px 'Inter'", color: AMBER }}>ERP BRANCH TRANSFER REQUIRED</div>
+                <div style={{ font: "500 12px 'Inter'", color: t.textFaint, marginTop: 5 }}>{homeBranch} inventory will be notified to enter the branch transfer in Maitri ERP before packing.</div>
               </>}
               {deliveryRoute === 'customer_ship' && <>
-                <div style={{ font: "800 10.5px 'Inter'", color: AMBER, marginTop: 10 }}>DOCUMENTS ARE ADDED LATER</div>
-                <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 5 }}>
+                <div style={{ font: "800 12.5px 'Inter'", color: AMBER, marginTop: 10 }}>DOCUMENTS ARE ADDED LATER</div>
+                <div style={{ font: "500 12px 'Inter'", color: t.textFaint, marginTop: 5 }}>
                   {isCrossBranch
                     ? 'After ERP BT receipt, open My requests and upload step 1: invoice/memo paperwork, then step 2: the shipping label.'
                     : 'Open My requests and upload step 1: invoice/memo paperwork, then step 2: the shipping label.'}
@@ -812,29 +814,29 @@ export default function RequestStonesPage() {
               </>}
             </div>
           )}
-          <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST FOR</div>
+          <div style={{ font: "600 12.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST FOR</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 12 }}>
             {requestForOptions.map(([value, label]) => (
-              <button key={value} onClick={() => setRequestScope(value as RequestScope)} style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 7, border: `1px solid ${requestScope === value ? ACCENT : t.borderLight}`, background: requestScope === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: requestScope === value ? ACCENT : t.textMuted, font: "600 11px 'Inter'", cursor: 'pointer' }}>
+              <button key={value} onClick={() => setRequestScope(value as RequestScope)} style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 7, border: `1px solid ${requestScope === value ? ACCENT : t.borderLight}`, background: requestScope === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: requestScope === value ? ACCENT : t.textMuted, font: "600 13px 'Inter'", cursor: 'pointer' }}>
                 {label}
               </button>
             ))}
           </div>
           {cartHasCertlessItem && (
-            <div style={{ font: "500 10px 'Inter'", color: t.textFaint, margin: '-6px 0 12px' }}>
+            <div style={{ font: "500 12px 'Inter'", color: t.textFaint, margin: '-6px 0 12px' }}>
               A stone in this request has no certificate on file, so only Stone can be requested.
             </div>
           )}
 
           {deliveryRoute === 'customer_dropoff' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 10 }}>
-              <input value={dropoffCompany} onChange={(e) => setDropoffCompany(e.target.value)} placeholder="Company name" style={{ background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 11.5px 'Inter'", outline: 'none' }} />
-              <textarea value={dropoffAddress} onChange={(e) => setDropoffAddress(e.target.value)} placeholder="Drop-off address" rows={3} style={{ resize: 'vertical', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 11.5px 'Inter'", outline: 'none' }} />
+              <input value={dropoffCompany} onChange={(e) => setDropoffCompany(e.target.value)} placeholder="Company name" style={{ background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 13.5px 'Inter'", outline: 'none' }} />
+              <textarea value={dropoffAddress} onChange={(e) => setDropoffAddress(e.target.value)} placeholder="Drop-off address" rows={3} style={{ resize: 'vertical', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '8px 9px', color: t.text, font: "500 13.5px 'Inter'", outline: 'none' }} />
             </div>
           )}
         </div>
 
-        {confirmMsg && <div style={{ marginTop: 12, font: "500 11.5px 'Inter'", color: confirmError ? RED : ACCENT }}>{confirmMsg}</div>}
+        {confirmMsg && <div style={{ marginTop: 12, font: "500 13.5px 'Inter'", color: confirmError ? RED : ACCENT }}>{confirmMsg}</div>}
 
         <button
           onClick={() => submit(
@@ -845,7 +847,7 @@ export default function RequestStonesPage() {
               : 'manual'
           )}
           disabled={cart.length === 0 || !fulfillmentChoice}
-          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length && fulfillmentChoice ? ACCENT : t.chipBg, color: cart.length && fulfillmentChoice ? '#0a0e0d' : t.textFaint, font: "600 13px 'Inter'", cursor: cart.length && fulfillmentChoice ? 'pointer' : 'default' }}
+          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length && fulfillmentChoice ? ACCENT : t.chipBg, color: cart.length && fulfillmentChoice ? '#0a0e0d' : t.textFaint, font: "600 15px 'Inter'", cursor: cart.length && fulfillmentChoice ? 'pointer' : 'default' }}
         >
           Submit request to inventory
         </button>

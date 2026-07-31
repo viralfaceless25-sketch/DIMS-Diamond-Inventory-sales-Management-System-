@@ -266,6 +266,9 @@ export interface StockQuery {
   colors?: string[];
   clarities?: string[];
   statuses?: string[];
+  // 'certified' | 'non_cert' — either, both, or neither selected (both/
+  // neither means no filter, same semantics as statuses above).
+  certStatuses?: string[];
   requestableOnly?: boolean;
 }
 
@@ -290,6 +293,7 @@ function stockParams(q: StockQuery): string {
   if (q.colors && q.colors.length) p.set('colors', q.colors.join(','));
   if (q.clarities && q.clarities.length) p.set('clarities', q.clarities.join(','));
   if (q.statuses && q.statuses.length) p.set('statuses', q.statuses.join(','));
+  if (q.certStatuses && q.certStatuses.length) p.set('certStatuses', q.certStatuses.join(','));
   if (q.requestableOnly) p.set('requestableOnly', 'true');
   return p.toString();
 }

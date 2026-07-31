@@ -22,7 +22,7 @@ const actionButton = {
   padding: '7px 10px',
   borderRadius: 7,
   cursor: 'pointer',
-  font: "700 10.5px 'Inter'",
+  font: "700 12.5px 'Inter'",
 } as const;
 
 export default function MyRequestsPage() {
@@ -155,8 +155,8 @@ export default function MyRequestsPage() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: '20px 26px 14px' }}>
-        <div style={{ font: "700 18px 'Inter'", color: t.text }}>My requests</div>
-        <div style={{ font: "400 12px 'Inter'", color: t.textFaint, marginTop: 3 }}>
+        <div style={{ font: "700 20px 'Inter'", color: t.text }}>My requests</div>
+        <div style={{ font: "400 14px 'Inter'", color: t.textFaint, marginTop: 3 }}>
           Physical movement, ERP branch transfer, and customer documents are tracked separately.
         </div>
       </div>
@@ -183,9 +183,9 @@ export default function MyRequestsPage() {
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 26px 26px' }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFaint }}>Loading…</div>
+          <div style={{ padding: 40, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint }}>Loading…</div>
         ) : requests.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFaint }}>You haven&apos;t submitted any requests yet.</div>
+          <div style={{ padding: 40, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint }}>You haven&apos;t submitted any requests yet.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {requests.map((request) => {
@@ -221,17 +221,17 @@ export default function MyRequestsPage() {
                     style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 120px 34px', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "600 13px 'Inter'", color: t.text }}>Request #{request.id}</div>
+                      <div style={{ font: "600 15px 'Inter'", color: t.text }}>Request #{request.id}</div>
                       {(pendingPaperwork || pendingLabel) && request.status !== 'cancelled' && (
                         <div style={{ display: 'flex', gap: 7, marginTop: 4, flexWrap: 'wrap' }}>
-                          {pendingPaperwork && <span style={{ font: "800 9.5px 'Inter'", color: AMBER }}>STEP 1 PAPERWORK</span>}
-                          {pendingLabel && <span style={{ font: "800 9.5px 'Inter'", color: AMBER }}>STEP 2 LABEL</span>}
+                          {pendingPaperwork && <span style={{ font: "800 11.5px 'Inter'", color: AMBER }}>STEP 1 PAPERWORK</span>}
+                          {pendingLabel && <span style={{ font: "800 11.5px 'Inter'", color: AMBER }}>STEP 2 LABEL</span>}
                         </div>
                       )}
                     </div>
-                    <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{request.branch}</div>
-                    <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint }}>{timeAgo(request.requestedAt)}</div>
-                    <div style={{ font: "600 10.5px 'Inter'", color: statusColor(request.status) }}>
+                    <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{request.branch}</div>
+                    <div style={{ font: "400 13.5px 'Inter'", color: t.textFaint }}>{timeAgo(request.requestedAt)}</div>
+                    <div style={{ font: "600 12.5px 'Inter'", color: statusColor(request.status) }}>
                       {STATUS_LABELS[request.status] || request.status}
                     </div>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><path d="M6 9l6 6 6-6" /></svg>
@@ -240,7 +240,7 @@ export default function MyRequestsPage() {
                   {isOpen && (
                     <div style={{ borderTop: `1px solid ${t.border}` }}>
                       {request.status === 'cancelled' && (
-                        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${t.border}`, color: RED, font: "700 11px 'Inter'" }}>
+                        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${t.border}`, color: RED, font: "700 13px 'Inter'" }}>
                           Cancelled after live ERP check: {request.cancellationStatus?.replaceAll('_', ' ') || 'unavailable'}
                           {request.cancellationReason ? ` — ${request.cancellationReason}` : ''}
                         </div>
@@ -248,7 +248,7 @@ export default function MyRequestsPage() {
 
                       {deliveryWorkflow && (
                         <div style={{ padding: '11px 16px', borderBottom: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', gap: 9 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', font: "600 11px 'Inter'", color: t.textMuted }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', font: "600 13px 'Inter'", color: t.textMuted }}>
                             <span>Physical route: {request.fulfillmentBranch || request.branch} → {request.deliveryBranch || request.branch}</span>
                             <span>{request.deliveryRoute === 'internal_transfer' ? 'Office shipment' : request.deliveryRoute === 'customer_ship' ? 'Customer shipment' : 'Customer drop-off'}</span>
                             <span>Movement: {request.transferStatus?.replaceAll('_', ' ') || 'awaiting source'}</span>
@@ -256,13 +256,13 @@ export default function MyRequestsPage() {
 
                           {request.crossBranch && (
                             <div style={{ padding: 10, background: t.bgSide, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
-                              <div style={{ font: "800 10.5px 'Inter'", color: t.text }}>MAITRI ERP — DIGITAL BRANCH TRANSFER</div>
+                              <div style={{ font: "800 12.5px 'Inter'", color: t.text }}>MAITRI ERP — DIGITAL BRANCH TRANSFER</div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                                <span style={{ font: "700 10.5px 'Inter'", color: request.erpTransferConfirmed ? GREEN : AMBER }}>
+                                <span style={{ font: "700 12.5px 'Inter'", color: request.erpTransferConfirmed ? GREEN : AMBER }}>
                                   1. {request.fulfillmentBranch} issue BT: {request.erpTransferConfirmed ? 'Completed' : 'Waiting'}
                                 </span>
                                 <span style={{ color: t.textFaint }}>→</span>
-                                <span style={{ font: "700 10.5px 'Inter'", color: request.erpTransferReceived ? GREEN : AMBER }}>
+                                <span style={{ font: "700 12.5px 'Inter'", color: request.erpTransferReceived ? GREEN : AMBER }}>
                                   2. {request.deliveryBranch} receive BT: {request.erpTransferReceived ? 'Completed' : request.erpReceiveRequested ? 'Requested' : 'Not requested'}
                                 </span>
                                 {!request.erpTransferReceived && request.status !== 'cancelled' && (
@@ -281,7 +281,7 @@ export default function MyRequestsPage() {
                                   </button>
                                 )}
                               </div>
-                              <div style={{ marginTop: 7, font: "500 10px 'Inter'", color: t.textFaint }}>
+                              <div style={{ marginTop: 7, font: "500 12px 'Inter'", color: t.textFaint }}>
                                 ERP receipt can be completed when you need to create the invoice or memo; physical arrival is tracked separately.
                               </div>
                             </div>
@@ -289,15 +289,15 @@ export default function MyRequestsPage() {
 
                           {customerShipment && (
                             <div style={{ padding: 10, background: t.bgSide, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
-                              <div style={{ font: "800 10.5px 'Inter'", color: t.text }}>CUSTOMER SHIPMENT DOCUMENTS</div>
+                              <div style={{ font: "800 12.5px 'Inter'", color: t.text }}>CUSTOMER SHIPMENT DOCUMENTS</div>
                               {!documentState.paperworkEnabled && (
-                                <div style={{ marginTop: 6, font: "600 10px 'Inter'", color: AMBER }}>
+                                <div style={{ marginTop: 6, font: "600 12px 'Inter'", color: AMBER }}>
                                   Receive the ERP BT first so the invoice or memo can be created in {request.deliveryBranch}.
                                 </div>
                               )}
                               {strictDocuments ? (
                                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 }}>
-                                  <span style={{ font: "800 10px 'Inter'", color: request.hasPaperwork ? GREEN : AMBER }}>
+                                  <span style={{ font: "800 12px 'Inter'", color: request.hasPaperwork ? GREEN : AMBER }}>
                                     Step 1: {request.hasPaperwork ? `${request.paperworkType} uploaded` : 'invoice/memo required'}
                                   </span>
                                   {request.hasPaperwork && (
@@ -312,7 +312,7 @@ export default function MyRequestsPage() {
                                 </div>
                               ) : (
                                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
-                                  <span style={{ font: "800 10px 'Inter'", color: documentState.paperworkComplete ? GREEN : AMBER }}>
+                                  <span style={{ font: "800 12px 'Inter'", color: documentState.paperworkComplete ? GREEN : AMBER }}>
                                     Legacy paperwork choice: {request.paperworkType || 'pending'}
                                   </span>
                                   {canEditDocuments && (['none', 'invoice', 'memo'] as const).map((choice) => (
@@ -343,7 +343,7 @@ export default function MyRequestsPage() {
                                 </div>
                               )}
                               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 }}>
-                                <span style={{ font: "800 10px 'Inter'", color: request.hasLabel ? GREEN : AMBER }}>
+                                <span style={{ font: "800 12px 'Inter'", color: request.hasLabel ? GREEN : AMBER }}>
                                   Step 2: {request.hasLabel ? 'shipping label uploaded' : 'shipping label required'}
                                 </span>
                                 {request.hasLabel && (
@@ -366,20 +366,20 @@ export default function MyRequestsPage() {
                         </div>
                       )}
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 90px 70px 50px 60px 44px 44px', gap: 8, padding: '9px 16px', font: "600 9.5px 'Inter'", color: t.textFaint }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 90px 70px 50px 60px 44px 44px', gap: 8, padding: '9px 16px', font: "600 11.5px 'Inter'", color: t.textFaint }}>
                         <div>STOCK #</div><div>SHAPE</div><div>CARAT</div><div>COL</div><div>CLTY</div><div title="Stone found">STN</div><div title="Cert found">CRT</div>
                       </div>
                       {sortStonesClient(request.stones).map((stone) => (
                         <div key={stone.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 90px 70px 50px 60px 44px 44px', gap: 8, padding: '9px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
                           <div style={{ minWidth: 0 }}>
-                            <Copyable value={stone.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
-                            {stone.liveErpVerification && <div style={{ font: "700 9px 'Inter'", color: GREEN }}>Live ERP availability verified</div>}
-                            {stone.snapshotReconciliation?.state === 'mismatch' && <div style={{ font: "700 9px 'Inter'", color: RED }}>Snapshot needs inventory review</div>}
+                            <Copyable value={stone.barcode} style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
+                            {stone.liveErpVerification && <div style={{ font: "700 11px 'Inter'", color: GREEN }}>Live ERP availability verified</div>}
+                            {stone.snapshotReconciliation?.state === 'mismatch' && <div style={{ font: "700 11px 'Inter'", color: RED }}>Snapshot needs inventory review</div>}
                           </div>
-                          <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stone.item_type === 'jewelry' ? (stone.item || stone.category || 'Jewelry') : (stone.shape || '—')}</div>
-                          <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{stone.item_type === 'jewelry' ? `${fmtCarat(stone.carat)} d.cts` : fmtCarat(stone.carat)}</div>
-                          <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{stone.color || '—'}</div>
-                          <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{stone.clarity || '—'}</div>
+                          <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stone.item_type === 'jewelry' ? (stone.item || stone.category || 'Jewelry') : (stone.shape || '—')}</div>
+                          <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{stone.item_type === 'jewelry' ? `${fmtCarat(stone.carat)} d.cts` : fmtCarat(stone.carat)}</div>
+                          <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text }}>{stone.color || '—'}</div>
+                          <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text }}>{stone.clarity || '—'}</div>
                           <Check checked={stone.stone_found} disabled size={16} />
                           <Check checked={stone.cert_found} disabled size={16} />
                         </div>
@@ -394,7 +394,7 @@ export default function MyRequestsPage() {
       </div>
 
       {message && (
-        <div style={{ position: 'fixed', right: 22, bottom: 22, maxWidth: 440, padding: '10px 13px', background: t.bgCard, border: `1px solid ${messageError ? RED : t.border}`, borderRadius: 8, color: messageError ? RED : t.text, font: "600 12px 'Inter'", zIndex: 100 }}>
+        <div style={{ position: 'fixed', right: 22, bottom: 22, maxWidth: 440, padding: '10px 13px', background: t.bgCard, border: `1px solid ${messageError ? RED : t.border}`, borderRadius: 8, color: messageError ? RED : t.text, font: "600 14px 'Inter'", zIndex: 100 }}>
           {message}
         </div>
       )}

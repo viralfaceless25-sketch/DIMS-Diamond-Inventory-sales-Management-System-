@@ -5,7 +5,7 @@ import { api, LooseStone, JewelryPiece } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
-import { Copyable } from '@/components/ui';
+import { Copyable, NonCertBadge } from '@/components/ui';
 import { ACCENT, AMBER, RED, COLOR_ORDER, CLARITY_ORDER } from '@/lib/theme';
 import { fmtCarat, fmtMeasurements } from '@/lib/utils';
 
@@ -38,6 +38,7 @@ export default function StockPage() {
   const [colors, setColors] = useState<string[]>([]);
   const [clarities, setClarities] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [certStatuses, setCertStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadMsg, setUploadMsg] = useState('');
   const [uploadErr, setUploadErr] = useState('');
@@ -64,6 +65,7 @@ export default function StockPage() {
       colors: itemType === 'loose' ? colors : [],
       clarities: itemType === 'loose' ? clarities : [],
       statuses,
+      certStatuses,
     };
     if (itemType === 'loose') {
       const res = await api.looseStock(q);
@@ -75,7 +77,7 @@ export default function StockPage() {
       setTotal(res.total);
     }
     setLoading(false);
-  }, [branch, itemType, page, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses]);
+  }, [branch, itemType, page, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses, certStatuses]);
 
   useEffect(() => {
     load();
@@ -103,7 +105,7 @@ export default function StockPage() {
   // Reset to page 1 when branch / type / filters change.
   useEffect(() => {
     setPage(1);
-  }, [branch, itemType, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses]);
+  }, [branch, itemType, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses, certStatuses]);
 
   useEffect(() => {
     setShapes([]);
@@ -153,7 +155,7 @@ export default function StockPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const hasFilters = !!(barcodeQ || certQ || refQ || shapes.length || labs.length || categories.length || metals.length || goldColors.length || purities.length || caratMin || caratMax || colors.length || clarities.length || statuses.length);
+  const hasFilters = !!(barcodeQ || certQ || refQ || shapes.length || labs.length || categories.length || metals.length || goldColors.length || purities.length || caratMin || caratMax || colors.length || clarities.length || statuses.length || certStatuses.length);
   const jewelryGoldOptions = metalOptions.length
     ? [
         metalOptions.some((m) => /\bYG\b|YELLOW/i.test(m)) ? 'Yellow' : null,
@@ -179,6 +181,7 @@ export default function StockPage() {
     setColors([]);
     setClarities([]);
     setStatuses([]);
+    setCertStatuses([]);
   };
 
   return (
@@ -195,32 +198,32 @@ export default function StockPage() {
         <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <div style={{ font: "700 13px 'Inter'", color: t.text }}>Diamond search</div>
-            <div style={{ font: "400 11px 'Inter'", color: t.textFaint }}>{itemType === 'loose' ? 'find by barcode, certificate, shape, lab, size, color, clarity, or status' : 'find by barcode, cert, category, metal, lab, diamond cts, or status'}</div>
+            <div style={{ font: "700 15px 'Inter'", color: t.text }}>Diamond search</div>
+            <div style={{ font: "400 13px 'Inter'", color: t.textFaint }}>{itemType === 'loose' ? 'find by barcode, certificate, shape, lab, size, color, clarity, or status' : 'find by barcode, cert, category, metal, lab, diamond cts, or status'}</div>
             {hasFilters && (
-              <button onClick={clearFilters} style={{ marginLeft: 'auto', font: "600 11px 'Inter'", color: t.textFaint, background: 'transparent', border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '4px 10px', cursor: 'pointer' }}>Clear</button>
+              <button onClick={clearFilters} style={{ marginLeft: 'auto', font: "600 13px 'Inter'", color: t.textFaint, background: 'transparent', border: `1px solid ${t.borderLight}`, borderRadius: 7, padding: '4px 10px', cursor: 'pointer' }}>Clear</button>
             )}
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ display: 'block', font: "600 10px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>BARCODE</label>
-              <input value={barcodeQ} onChange={(e) => setBarcodeQ(e.target.value)} placeholder="e.g. 268140-003A" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 12.5px 'JetBrains Mono'", outline: 'none' }} />
+              <label style={{ display: 'block', font: "600 12px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>BARCODE</label>
+              <input value={barcodeQ} onChange={(e) => setBarcodeQ(e.target.value)} placeholder="e.g. 268140-003A" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 14.5px 'JetBrains Mono'", outline: 'none' }} />
             </div>
             {itemType === 'jewelry' && (
               <div style={{ flex: 1, minWidth: 200 }}>
-                <label style={{ display: 'block', font: "600 10px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>REF NO.</label>
-                <input value={refQ} onChange={(e) => setRefQ(e.target.value)} placeholder="e.g. J103453" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 12.5px 'JetBrains Mono'", outline: 'none' }} />
+                <label style={{ display: 'block', font: "600 12px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>REF NO.</label>
+                <input value={refQ} onChange={(e) => setRefQ(e.target.value)} placeholder="e.g. J103453" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 14.5px 'JetBrains Mono'", outline: 'none' }} />
               </div>
             )}
             <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ display: 'block', font: "600 10px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>{itemType === 'loose' ? 'CERTIFICATE NO.' : 'CERT NO.'}</label>
-              <input value={certQ} onChange={(e) => setCertQ(e.target.value)} placeholder="e.g. 749533545" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 12.5px 'JetBrains Mono'", outline: 'none' }} />
+              <label style={{ display: 'block', font: "600 12px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>{itemType === 'loose' ? 'CERTIFICATE NO.' : 'CERT NO.'}</label>
+              <input value={certQ} onChange={(e) => setCertQ(e.target.value)} placeholder="e.g. 749533545" style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: "500 14.5px 'JetBrains Mono'", outline: 'none' }} />
             </div>
           </div>
         </div>
 
         <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div style={{ font: "700 13px 'Inter'", color: t.text, marginBottom: 12 }}>{itemType === 'loose' ? 'More diamond filters' : 'Jewelry filters'}</div>
+          <div style={{ font: "700 15px 'Inter'", color: t.text, marginBottom: 12 }}>{itemType === 'loose' ? 'More diamond filters' : 'Jewelry filters'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(150px, 1fr))', gap: 12 }}>
             <SearchInput label={itemType === 'loose' ? 'MIN CT' : 'MIN D.CTS'} value={caratMin} onChange={setCaratMin} placeholder="0.50" t={t} mono />
             <SearchInput label={itemType === 'loose' ? 'MAX CT' : 'MAX D.CTS'} value={caratMax} onChange={setCaratMax} placeholder="2.00" t={t} mono />
@@ -242,27 +245,28 @@ export default function StockPage() {
             </>
           )}
           <ChipRow label="Status" values={['available', 'on_memo', 'on_hold', 'in_transit']} labels={{ available: 'Available', on_memo: 'On Memo', on_hold: 'On Hold', in_transit: 'In Transit' }} active={statuses} onToggle={(v) => setStatuses((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v])} t={t} />
+          <ChipRow label="Certificate" values={['certified', 'non_cert']} labels={{ certified: 'Certified', non_cert: 'Non-cert' }} active={certStatuses} onToggle={(v) => setCertStatuses((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v])} t={t} />
         </div>
 
         {/* Upload box */}
         <div style={{ background: t.bgCard, border: `1px dashed ${t.borderLight}`, borderRadius: 12, padding: 20, marginBottom: 22, display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ font: "600 13px 'Inter'", color: t.text }}>Upload stock spreadsheet</div>
-            <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>
+            <div style={{ font: "600 15px 'Inter'", color: t.text }}>Upload stock spreadsheet</div>
+            <div style={{ font: "400 13.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>
               .xlsx or .csv for both loose stones and jewelry. Rows are grouped by their Branch column; each included branch is replaced atomically.
             </div>
-            {uploadMsg && <div style={{ marginTop: 8, font: "500 11.5px 'Inter'", color: ACCENT }}>{uploadMsg}</div>}
-            {uploadErr && <div style={{ marginTop: 8, font: "500 11.5px 'Inter'", color: RED }}>{uploadErr}</div>}
+            {uploadMsg && <div style={{ marginTop: 8, font: "500 13.5px 'Inter'", color: ACCENT }}>{uploadMsg}</div>}
+            {uploadErr && <div style={{ marginTop: 8, font: "500 13.5px 'Inter'", color: RED }}>{uploadErr}</div>}
           </div>
           <input ref={fileRef} type="file" accept=".xlsx,.csv" onChange={onFile} style={{ display: 'none' }} />
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ padding: '10px 18px', borderRadius: 9, border: 'none', background: uploading ? t.chipBg : ACCENT, color: uploading ? t.textFaint : '#0a0e0d', font: "600 12.5px 'Inter'", cursor: uploading ? 'default' : 'pointer', flex: 'none' }}>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ padding: '10px 18px', borderRadius: 9, border: 'none', background: uploading ? t.chipBg : ACCENT, color: uploading ? t.textFaint : '#0a0e0d', font: "600 14.5px 'Inter'", cursor: uploading ? 'default' : 'pointer', flex: 'none' }}>
             {uploading ? 'Processing…' : 'Choose file'}
           </button>
         </div>
 
         {/* Result count + pagination header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ font: "500 12px 'Inter'", color: t.textFaint }}>
+          <div style={{ font: "500 14px 'Inter'", color: t.textFaint }}>
             {loading ? 'Loading…' : `${total.toLocaleString()} ${itemType === 'loose' ? 'stones' : 'pieces'}${hasFilters ? ' matching' : ''}`}
           </div>
           <Pager page={page} totalPages={totalPages} onPage={setPage} t={t} />
@@ -296,24 +300,24 @@ function LooseTable({ rows, t, loading }: { rows: LooseStone[]; t: import('@/lib
   const cols = '1.15fr 90px 70px minmax(165px,1.15fr) 130px 60px 70px 1fr minmax(0,1.2fr)';
   return (
     <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', font: "600 9.5px 'Inter'", color: t.textFainter }}>
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', font: "600 11.5px 'Inter'", color: t.textFainter }}>
         <div>BARCODE</div><div>SHAPE</div><div>CARAT</div><div>MEASUREMENTS / RATIO</div><div>COLOR</div><div>CLTY</div><div>LAB</div><div>CERT #</div><div>AVAILABILITY</div>
       </div>
       {rows.map((r) => {
         const av = availabilityLabel(r.availability);
         return (
           <div key={r.barcode} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
-            <Copyable value={r.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
-            <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{r.shape || '—'}</div>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{fmtCarat(r.carat)}</div>
-            <div style={{ font: "600 11px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(r.length_mm, r.width_mm, r.height_mm, r.lw_ratio)}</div>
-            <div style={{ font: "400 11px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.color || ''}>{r.color || '—'}</div>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{r.clarity || '—'}</div>
-            <div style={{ font: "400 11px 'Inter'", color: t.textMuted }}>{r.lab || '—'}</div>
-            <div style={{ font: "500 11px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {r.certificate_no ? <Copyable value={r.certificate_no} /> : '—'}
+            <Copyable value={r.barcode} style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
+            <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted }}>{r.shape || '—'}</div>
+            <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{fmtCarat(r.carat)}</div>
+            <div style={{ font: "600 13px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(r.length_mm, r.width_mm, r.height_mm, r.lw_ratio)}</div>
+            <div style={{ font: "400 13px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.color || ''}>{r.color || '—'}</div>
+            <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text }}>{r.clarity || '—'}</div>
+            <div style={{ font: "400 13px 'Inter'", color: t.textMuted }}>{r.lab || '—'}</div>
+            <div style={{ font: "500 13px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.certificate_no ? <Copyable value={r.certificate_no} /> : <NonCertBadge />}
             </div>
-            <div style={{ font: "600 10.5px 'Inter'", color: av.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{av.text}</div>
+            <div style={{ font: "600 12.5px 'Inter'", color: av.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{av.text}</div>
           </div>
         );
       })}
@@ -327,22 +331,22 @@ function JewelryTable({ rows, t, loading }: { rows: JewelryPiece[]; t: import('@
   const cols = '1fr 80px minmax(0,1.4fr) 80px 80px 70px 58px 70px minmax(0,1.1fr)';
   return (
     <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', font: "600 9.5px 'Inter'", color: t.textFainter }}>
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', font: "600 11.5px 'Inter'", color: t.textFainter }}>
         <div>BARCODE</div><div>CATEGORY</div><div>ITEM</div><div>REF #</div><div>METAL</div><div>D.CTS</div><div>PCS</div><div>AMOUNT</div><div>AVAILABILITY</div>
       </div>
       {rows.map((r) => {
         const av = availabilityLabel(r.availability);
         return (
           <div key={r.barcode} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
-            <Copyable value={r.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
-            <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{r.category || '—'}</div>
-            <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.item || '—'}</div>
-            <div style={{ font: "500 11px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ref_no || '—'}</div>
-            <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{r.metal || '—'}</div>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{r.diamond_cts ?? '—'}</div>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{r.diamond_pcs ?? '—'}</div>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{r.amount ?? '—'}</div>
-            <div style={{ font: "600 10.5px 'Inter'", color: av.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{av.text}</div>
+            <Copyable value={r.barcode} style={{ font: "500 13.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
+            <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted }}>{r.category || '—'}</div>
+            <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.item || '—'}</div>
+            <div style={{ font: "500 13px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ref_no || '—'}</div>
+            <div style={{ font: "400 13.5px 'Inter'", color: t.textMuted }}>{r.metal || '—'}</div>
+            <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{r.diamond_cts ?? '—'}</div>
+            <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{r.diamond_pcs ?? '—'}</div>
+            <div style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textMuted }}>{r.amount ?? '—'}</div>
+            <div style={{ font: "600 12.5px 'Inter'", color: av.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{av.text}</div>
           </div>
         );
       })}
@@ -353,12 +357,12 @@ function JewelryTable({ rows, t, loading }: { rows: JewelryPiece[]; t: import('@
 function Pager({ page, totalPages, onPage, t }: { page: number; totalPages: number; onPage: (p: number) => void; t: import('@/lib/theme').Theme }) {
   if (totalPages <= 1) return null;
   const btn = (label: string, target: number, disabled: boolean) => (
-    <button onClick={() => !disabled && onPage(target)} disabled={disabled} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: disabled ? t.textFainter : t.textMuted, font: "600 11px 'Inter'", cursor: disabled ? 'default' : 'pointer' }}>{label}</button>
+    <button onClick={() => !disabled && onPage(target)} disabled={disabled} style={{ padding: '6px 11px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: disabled ? t.textFainter : t.textMuted, font: "600 13px 'Inter'", cursor: disabled ? 'default' : 'pointer' }}>{label}</button>
   );
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       {btn('‹ Prev', page - 1, page <= 1)}
-      <span style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textFaint, padding: '0 6px' }}>{page} / {totalPages}</span>
+      <span style={{ font: "500 13.5px 'JetBrains Mono'", color: t.textFaint, padding: '0 6px' }}>{page} / {totalPages}</span>
       {btn('Next ›', page + 1, page >= totalPages)}
     </div>
   );
@@ -366,7 +370,7 @@ function Pager({ page, totalPages, onPage, t }: { page: number; totalPages: numb
 
 function TabBtn({ active, onClick, children, t }: { active: boolean; onClick: () => void; children: React.ReactNode; t: import('@/lib/theme').Theme }) {
   return (
-    <div onClick={onClick} style={{ cursor: 'pointer', font: "600 12.5px 'Inter'", padding: '8px 16px', borderRadius: 9, background: active ? 'oklch(78% 0.13 240 / 0.15)' : t.bgCard, color: active ? ACCENT : t.textMuted, border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.border}` }}>
+    <div onClick={onClick} style={{ cursor: 'pointer', font: "600 14.5px 'Inter'", padding: '8px 16px', borderRadius: 9, background: active ? 'oklch(78% 0.13 240 / 0.15)' : t.bgCard, color: active ? ACCENT : t.textMuted, border: `1px solid ${active ? 'oklch(78% 0.13 240 / 0.3)' : t.border}` }}>
       {children}
     </div>
   );
@@ -375,7 +379,7 @@ function TabBtn({ active, onClick, children, t }: { active: boolean; onClick: ()
 function SearchInput({ label, value, onChange, placeholder, t, mono }: { label: string; value: string; onChange: (v: string) => void; placeholder: string; t: import('@/lib/theme').Theme; mono?: boolean }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <label style={{ display: 'block', font: "600 10px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>{label}</label>
+      <label style={{ display: 'block', font: "600 12px 'Inter'", color: t.textFaint, marginBottom: 5, letterSpacing: '0.03em' }}>{label}</label>
       <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ width: '100%', background: t.bg, border: `1px solid ${t.borderLight}`, borderRadius: 8, padding: '9px 12px', color: t.text, font: `500 12.5px '${mono ? 'JetBrains Mono' : 'Inter'}'`, outline: 'none' }} />
     </div>
   );
@@ -385,11 +389,11 @@ function ChipRow({ label, values, labels, active, onToggle, t, wide }: { label: 
   if (values.length === 0) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-      <span style={{ font: "600 10.5px 'Inter'", color: t.textFaint, width: wide ? 70 : 48 }}>{label}</span>
+      <span style={{ font: "600 12.5px 'Inter'", color: t.textFaint, width: wide ? 70 : 48 }}>{label}</span>
       {values.map((v) => {
         const on = active.includes(v);
         return (
-          <button key={v} onClick={() => onToggle(v)} style={{ cursor: 'pointer', font: "600 11px 'Inter'", padding: '5px 11px', borderRadius: 20, background: on ? 'oklch(78% 0.13 240 / 0.18)' : t.chipBg, color: on ? ACCENT : t.textMuted, border: `1px solid ${on ? 'oklch(78% 0.13 240 / 0.3)' : 'transparent'}` }}>
+          <button key={v} onClick={() => onToggle(v)} style={{ cursor: 'pointer', font: "600 13px 'Inter'", padding: '5px 11px', borderRadius: 20, background: on ? 'oklch(78% 0.13 240 / 0.18)' : t.chipBg, color: on ? ACCENT : t.textMuted, border: `1px solid ${on ? 'oklch(78% 0.13 240 / 0.3)' : 'transparent'}` }}>
             {labels?.[v] || v}
           </button>
         );
@@ -399,5 +403,5 @@ function ChipRow({ label, values, labels, active, onToggle, t, wide }: { label: 
 }
 
 function Empty({ children, t }: { children: React.ReactNode; t: import('@/lib/theme').Theme }) {
-  return <div style={{ padding: 50, textAlign: 'center', font: "400 13px 'Inter'", color: t.textFaint, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12 }}>{children}</div>;
+  return <div style={{ padding: 50, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12 }}>{children}</div>;
 }

@@ -29,13 +29,13 @@ export function TopBar({
   const pills = ['ALL', ...BRANCHES];
   return (
     <div style={{ height: 64, flex: 'none', display: 'flex', alignItems: 'center', gap: 16, padding: '0 26px', borderBottom: `1px solid ${t.border}`, background: t.bgSide }}>
-      <div style={{ font: "700 16px 'Inter'", color: t.text, flex: 'none' }}>{title}</div>
+      <div style={{ font: "700 18px 'Inter'", color: t.text, flex: 'none' }}>{title}</div>
 
       <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
         {lockBranch ? (
           <div
             style={{
-              font: "600 11.5px 'Inter'",
+              font: "600 13.5px 'Inter'",
               padding: '6px 13px',
               borderRadius: 20,
               background: 'oklch(78% 0.13 240 / 0.18)',
@@ -54,7 +54,7 @@ export function TopBar({
                 onClick={() => onBranch(b)}
                 style={{
                   cursor: 'pointer',
-                  font: "600 11.5px 'Inter'",
+                  font: "600 13.5px 'Inter'",
                   padding: '6px 13px',
                   borderRadius: 20,
                   background: active ? 'oklch(78% 0.13 240 / 0.18)' : t.bgCard,
@@ -78,7 +78,7 @@ export function TopBar({
             value={search || ''}
             onChange={(e) => onSearch(e.target.value)}
             placeholder={searchPlaceholder}
-            style={{ background: 'none', border: 'none', outline: 'none', color: t.text, font: "400 13px 'Inter'", width: '100%' }}
+            style={{ background: 'none', border: 'none', outline: 'none', color: t.text, font: "400 15px 'Inter'", width: '100%' }}
           />
         </div>
       )}
