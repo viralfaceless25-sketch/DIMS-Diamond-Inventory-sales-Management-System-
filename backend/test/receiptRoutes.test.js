@@ -13,13 +13,14 @@ test('receipt lookup derives the receiving branch from the authenticated invento
   const seen = [];
   pool.query = async (sql, params = []) => {
     seen.push({ sql, params });
-    if (sql.includes('SELECT id, email, role, sales_rep_id')) {
+    if (sql.includes('token_version') && sql.includes('FROM users')) {
       return {
         rows: [{
           id: 77,
           email: 'stockny@maitri.nyc',
           role: 'inventory',
           sales_rep_id: 501,
+          branch: 'NY',
           is_active: true,
           must_change_password: false,
           token_version: 0,
