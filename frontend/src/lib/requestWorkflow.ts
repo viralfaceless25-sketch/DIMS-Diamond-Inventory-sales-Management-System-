@@ -34,8 +34,16 @@ export interface AvailabilityLike {
   repName?: string | null;
 }
 
+// On Hold / On Memo / In Transit are shown so the rep still sees the
+// snapshot's note, but no longer block adding the stone — see
+// isRequestableStockStatus on the backend for why. 'requested'/'conflict'
+// (another rep already has an active request for it) and 'not_in_snapshot'
+// (missing from the latest snapshot entirely) still block, unchanged.
 export function canRequestAvailability(availability: AvailabilityLike) {
-  return availability.status === 'in_stock';
+  return availability.status === 'in_stock'
+    || availability.status === 'on_hold'
+    || availability.status === 'on_memo'
+    || availability.status === 'in_transit';
 }
 
 export function availabilityText(availability: AvailabilityLike) {
@@ -96,7 +104,7 @@ export function fulfillmentChoiceLabel(
     local_urgent: 'Urgent',
     local_dropoff: 'Drop off to customer',
     local_ship: 'Shipment to customer',
-    local: `Local pickup (${repBranch})`,
+    local: 'Local',
     bt_to_rep_branch: `BT ship stone/cert to ${repBranch}`,
     bt_customer_ship: 'BT ship stone/cert to customer',
     bt_customer_dropoff: 'BT drop off stone/cert to customer',

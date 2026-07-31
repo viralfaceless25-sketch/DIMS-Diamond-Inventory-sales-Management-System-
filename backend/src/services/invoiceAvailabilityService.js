@@ -39,7 +39,10 @@ function mergeInvoiceWithInventory(parsedStones, inventoryRows) {
         stockBranch: safeInventory.branch,
         source: 'inventory',
         available: true,
-        availabilityLabel: 'Available',
+        // On Hold / On Memo / In Transit no longer block the request, but the
+        // rep reviewing the extracted PDF should still see the real snapshot
+        // status rather than a flattened "Available", same as the browse grid.
+        availabilityLabel: stockStatusLabel(stockStatus),
       };
     }
 

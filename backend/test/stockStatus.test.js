@@ -25,9 +25,12 @@ test('labels every canonical ERP stock status', () => {
   assert.equal(stockStatusLabel('in_transit'), 'In Transit');
 });
 
-test('only available stock is requestable', () => {
-  assert.equal(isRequestableStockStatus('Available'), true);
-  for (const status of ['on_memo', 'on_hold', 'in_transit']) {
-    assert.equal(isRequestableStockStatus(status), false);
+test('every known snapshot status is requestable — none of them alone blocks a request', () => {
+  // Available / On Hold / On Memo / In Transit all come from the daily Excel
+  // snapshot and can go stale before the next import, so none blocks by
+  // itself. A stone missing from the snapshot entirely (checked separately
+  // via snapshot_active, not stock_status) still blocks.
+  for (const status of ['Available', 'on_memo', 'on_hold', 'in_transit', 'On Hold', 'OnMemo']) {
+    assert.equal(isRequestableStockStatus(status), true, `expected ${status} to be requestable`);
   }
 });

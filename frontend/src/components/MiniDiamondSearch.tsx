@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { api, LooseStone } from '@/lib/api';
 import { Theme, ACCENT } from '@/lib/theme';
 import { availabilityText } from '@/lib/requestWorkflow';
 import { fmtCarat } from '@/lib/utils';
+import { useQuickSearch } from '@/app/rep/repContext';
 
 // Compact always-on stock lookup for the sales-rep sidebar. Reps can find a
 // diamond by stock number, certificate, or attributes from any rep page; a
@@ -14,6 +15,8 @@ import { fmtCarat } from '@/lib/utils';
 // grid uses, so results and availability stay consistent.
 export function MiniDiamondSearch({ t }: { t: Theme }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { setTerm } = useQuickSearch();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<LooseStone[]>([]);
   const [open, setOpen] = useState(false);
@@ -60,7 +63,15 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
   function pick(stone: LooseStone) {
     setOpen(false);
     setQ('');
-    router.push(`/rep/request-stones?q=${encodeURIComponent(stone.barcode)}`);
+    if (pathname === '/rep/request-stones') {
+      // Already there — update the shared search term directly. A
+      // router.push to the same route (query string only) still triggers a
+      // full Next.js navigation, which was observed to make the layout's
+      // pathname-gated FILTER STOCK panel flicker.
+      setTerm(stone.barcode);
+    } else {
+      router.push(`/rep/request-stones?q=${encodeURIComponent(stone.barcode)}`);
+    }
   }
 
   return (

@@ -72,24 +72,32 @@ test('stock is locked in deterministic loose-then-jewelry order', async () => {
   assert.equal(stock.get('jewelry:J-1').branch, 'LA');
 });
 
-test('locked stock validation blocks missing and unavailable items', () => {
-  const stock = new Map([
-    ['loose:MEMO-1', {
-      barcode: 'MEMO-1',
-      branch: 'LA',
-      stock_status: 'on_memo',
-      item_type: 'loose',
-    }],
-  ]);
+test('locked stock validation blocks a barcode missing from stock entirely', () => {
+  const stock = new Map();
 
   assert.throws(
     () => validateRequestStock([
-      { barcode: 'MEMO-1', itemType: 'loose' },
       { barcode: 'MISSING', itemType: 'jewelry' },
     ], stock),
     (error) => error.status === 409
-      && error.blocked.some((reason) => reason.includes('On Memo'))
       && error.blocked.some((reason) => reason.includes('not in stock'))
+  );
+});
+
+test('On Hold / On Memo / In Transit stock is requestable without any override', () => {
+  const stock = new Map([
+    ['loose:MEMO-1', { barcode: 'MEMO-1', branch: 'LA', stock_status: 'on_memo', item_type: 'loose' }],
+    ['loose:HOLD-1', { barcode: 'HOLD-1', branch: 'LA', stock_status: 'on_hold', item_type: 'loose' }],
+    ['loose:TRANSIT-1', { barcode: 'TRANSIT-1', branch: 'LA', stock_status: 'in_transit', item_type: 'loose' }],
+  ]);
+
+  assert.deepEqual(
+    validateRequestStock([
+      { barcode: 'MEMO-1', itemType: 'loose' },
+      { barcode: 'HOLD-1', itemType: 'loose' },
+      { barcode: 'TRANSIT-1', itemType: 'loose' },
+    ], stock),
+    []
   );
 });
 
@@ -115,12 +123,14 @@ test('a row archived from the latest ERP snapshot is not requestable', () => {
 
 test('a newer one-time home-branch verification permits stale blocked stock', () => {
   const stones = [{ barcode: 'LA-100', itemType: 'loose' }];
+  // On Hold no longer blocks by itself, so the case that still needs a live
+  // ERP recheck override is a barcode missing from the latest snapshot.
   const stockByKey = new Map([['loose:LA-100', {
     barcode: 'LA-100',
     item_type: 'loose',
     branch: 'LA',
-    stock_status: 'on_hold',
-    snapshot_active: true,
+    stock_status: 'available',
+    snapshot_active: false,
     last_seen_at: '2026-07-29T08:00:00.000Z',
   }]]);
   const authorizationsByKey = new Map([['loose:LA-100', {
@@ -147,7 +157,7 @@ test('a newer one-time home-branch verification permits stale blocked stock', ()
       authorizationsByKey,
       salesRepId: 8,
     }),
-    /LA-100 is On Hold/
+    /LA-100 is Not in latest ERP snapshot/
   );
 });
 
@@ -161,8 +171,8 @@ test('request preparation locks stock before the one-time verification', async (
           barcode: 'LA-100',
           item_type: 'loose',
           branch: 'LA',
-          stock_status: 'on_hold',
-          snapshot_active: true,
+          stock_status: 'available',
+          snapshot_active: false,
           last_seen_at: '2026-07-29T08:00:00.000Z',
         }] };
       }

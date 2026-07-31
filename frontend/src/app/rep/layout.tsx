@@ -7,7 +7,7 @@ import { useRequireRole, useAuth } from '@/lib/auth';
 import { THEMES, ThemeName, ACCENT, COLOR_ORDER, CLARITY_ORDER, initialsOf } from '@/lib/theme';
 import { api } from '@/lib/api';
 import { MiniDiamondSearch } from '@/components/MiniDiamondSearch';
-import { ThemeContext, CartContext, StockFilterContext } from './repContext';
+import { ThemeContext, CartContext, StockFilterContext, QuickSearchContext } from './repContext';
 
 // Theme context (light/dark) — Sales Rep app only, per the prototype.
 const NAV = [
@@ -37,6 +37,7 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
   const [shapes, setShapes] = useState<string[]>([]);
   const [shapeOptions, setShapeOptions] = useState<string[]>(FALLBACK_SHAPES);
   const [shapePanelOpen, setShapePanelOpen] = useState(false);
+  const [quickSearchTerm, setQuickSearchTerm] = useState('');
 
   const t = THEMES[name];
   const themeValue = useMemo(() => ({ theme: t, name, toggle: () => setName((n) => (n === 'dark' ? 'light' : 'dark')) }), [t, name]);
@@ -55,6 +56,7 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
     <ThemeContext.Provider value={themeValue}>
       <CartContext.Provider value={{ count: cartCount, setCount: setCartCount }}>
         <StockFilterContext.Provider value={{ colors, setColors, clarities, setClarities, shapes, setShapes, shapeOptions }}>
+        <QuickSearchContext.Provider value={{ term: quickSearchTerm, setTerm: setQuickSearchTerm }}>
         <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
           {/* Sidebar */}
           <div style={{ width: 224, flex: 'none', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
@@ -135,6 +137,7 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </div>
+        </QuickSearchContext.Provider>
         </StockFilterContext.Provider>
       </CartContext.Provider>
     </ThemeContext.Provider>

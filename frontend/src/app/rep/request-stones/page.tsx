@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { api, LooseStone, JewelryPiece, ExtractedStone, StockRecheck } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
-import { useTheme, useCartBadge, useStockFilters } from '../repContext';
+import { useTheme, useCartBadge, useStockFilters, useQuickSearch } from '../repContext';
 import { ACCENT, AMBER, RED } from '@/lib/theme';
 import { fmtCarat, fmtMeasurements, sortStonesClient } from '@/lib/utils';
 import {
@@ -50,6 +50,7 @@ export default function RequestStonesPage() {
   const { theme: t } = useTheme();
   const { setCount } = useCartBadge();
   const { colors: colorFilter, clarities: clarityFilter, shapes: shapeFilter } = useStockFilters();
+  const { term: quickSearchTerm } = useQuickSearch();
   const branch = user?.branch || 'NY';
 
   // The sidebar mini diamond search links here with ?q=<barcode>, which
@@ -151,13 +152,20 @@ export default function RequestStonesPage() {
   useEffect(() => {
     load();
   }, [load]);
-  // Re-applies ?q= when the mini search is used again while already on this
-  // page (client-side nav to the same route doesn't remount, so the initial
-  // useState value above wouldn't otherwise pick up a second search).
+  // ?q= only arrives when the mini search sends the rep here FROM another
+  // rep page (a real navigation, so this effect only needs to run once on
+  // mount for that case — searchParams is intentionally not a dependency).
   useEffect(() => {
     const q = searchParams.get('q') || '';
     if (q) setSearch(q);
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Picking a result from the mini search while ALREADY on this page comes
+  // through QuickSearchContext instead of a route change, so the FILTER
+  // STOCK panel (gated on pathname in the layout) never flickers.
+  useEffect(() => {
+    if (quickSearchTerm) setSearch(quickSearchTerm);
+  }, [quickSearchTerm]);
   useEffect(() => {
     setCount(cart.length);
   }, [cart, setCount]);
@@ -425,7 +433,15 @@ export default function RequestStonesPage() {
   }
 
   function extractedReason(s: ExtractedStone) {
-    if (isExtractedRequestable(s)) return `${s.available ? 'Available' : 'Live ERP: Available'} · ${s.stockBranch || s.branch || 'home branch unknown'}`;
+    if (isExtractedRequestable(s)) {
+      // On Hold / On Memo / In Transit are requestable now, but the rep
+      // should still see the real snapshot status here, not a flattened
+      // "Available" — same reasoning as the browse grid's status label.
+      const label = s.available
+        ? s.availabilityLabel || 'Available'
+        : 'Live ERP: Available';
+      return `${label} · ${s.stockBranch || s.branch || 'home branch unknown'}`;
+    }
     if (s.availabilityLabel) return s.availabilityLabel;
     if (s.reason === 'on_memo') return 'On Memo';
     if (s.reason === 'on_hold') return 'On Hold';

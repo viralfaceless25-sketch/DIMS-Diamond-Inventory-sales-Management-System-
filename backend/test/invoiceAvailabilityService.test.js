@@ -34,7 +34,7 @@ test('invoice extraction keeps available stock requestable across branches', () 
   assert.equal('cost' in stone, false);
 });
 
-test('invoice extraction blocks live snapshot statuses and archived rows precisely', () => {
+test('invoice extraction keeps On Hold / On Memo / In Transit requestable but still labeled', () => {
   const [held] = mergeInvoiceWithInventory(parsed, [{
     barcode: 'LA-100',
     branch: 'LA',
@@ -42,11 +42,32 @@ test('invoice extraction blocks live snapshot statuses and archived rows precise
     snapshot_active: true,
     item_type: 'loose',
   }]);
-  assert.equal(held.available, false);
-  assert.equal(held.reason, 'on_hold');
+  assert.equal(held.available, true);
   assert.equal(held.availabilityLabel, 'On Hold');
   assert.equal(held.stockBranch, 'LA');
 
+  const [onMemo] = mergeInvoiceWithInventory(parsed, [{
+    barcode: 'LA-100',
+    branch: 'LA',
+    stock_status: 'on_memo',
+    snapshot_active: true,
+    item_type: 'loose',
+  }]);
+  assert.equal(onMemo.available, true);
+  assert.equal(onMemo.availabilityLabel, 'On Memo');
+
+  const [inTransit] = mergeInvoiceWithInventory(parsed, [{
+    barcode: 'LA-100',
+    branch: 'LA',
+    stock_status: 'in_transit',
+    snapshot_active: true,
+    item_type: 'loose',
+  }]);
+  assert.equal(inTransit.available, true);
+  assert.equal(inTransit.availabilityLabel, 'In Transit');
+});
+
+test('invoice extraction blocks rows archived out of the latest snapshot', () => {
   const [missing] = mergeInvoiceWithInventory(parsed, [{
     barcode: 'LA-100',
     branch: 'LA',

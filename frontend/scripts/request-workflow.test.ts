@@ -31,17 +31,28 @@ test('only the supplying branch resolves internal-transfer items before shipment
   }, 'NY'), false);
 });
 
-test('in-transit availability is explicit and blocked', () => {
+test('in-transit availability is explicit and requestable', () => {
   assert.equal(
     availabilityText({ status: 'in_transit', label: 'In Transit' }),
     'In Transit'
   );
-  assert.equal(canRequestAvailability({ status: 'in_transit' }), false);
+  // In Transit comes from the daily snapshot and can go stale before the
+  // next import, so it no longer blocks a request by itself — same
+  // reasoning as On Hold / On Memo below.
+  assert.equal(canRequestAvailability({ status: 'in_transit' }), true);
 });
 
-test('memo and hold availability use exact ERP status labels', () => {
+test('memo and hold availability use exact ERP status labels and are requestable', () => {
   assert.equal(availabilityText({ status: 'on_memo' }), 'On Memo');
   assert.equal(availabilityText({ status: 'on_hold' }), 'On Hold');
+  assert.equal(canRequestAvailability({ status: 'on_memo' }), true);
+  assert.equal(canRequestAvailability({ status: 'on_hold' }), true);
+});
+
+test('a stone another rep is holding, or missing from the snapshot, is still blocked', () => {
+  assert.equal(canRequestAvailability({ status: 'requested' }), false);
+  assert.equal(canRequestAvailability({ status: 'conflict' }), false);
+  assert.equal(canRequestAvailability({ status: 'not_in_snapshot' }), false);
 });
 
 test('fulfillment labels use the authenticated rep branch', () => {

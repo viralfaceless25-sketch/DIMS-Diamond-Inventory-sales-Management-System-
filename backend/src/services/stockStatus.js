@@ -20,8 +20,17 @@ function stockStatusLabel(status) {
     .join(' ');
 }
 
+// Available / On Hold / On Memo / In Transit all come from the daily Excel
+// snapshot and can go stale within a day (a hold is released, a memo comes
+// back, a transit lands) well before the next import, so none of them alone
+// blocks a request. A stone missing from the snapshot entirely
+// (snapshot_active === false, checked by callers separately) still blocks —
+// that's a different signal than its last-known status. Duplicate-request
+// protection (a stone already held by another rep's active request) is
+// enforced separately at request time regardless of status, so it still
+// blocks two reps claiming the same stone.
 function isRequestableStockStatus(status) {
-  return normalizeStockStatus(status) === 'available';
+  return ['available', 'on_hold', 'on_memo', 'in_transit'].includes(normalizeStockStatus(status));
 }
 
 module.exports = { normalizeStockStatus, stockStatusLabel, isRequestableStockStatus };

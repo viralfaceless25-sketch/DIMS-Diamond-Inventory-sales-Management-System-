@@ -210,7 +210,8 @@ router.get('/loose', async (req, res, next) => {
       conditions.push(`carat <= $${params.length}`);
     }
     if (requestableOnly === 'true') {
-      conditions.push(`coalesce(stock_status, 'available') = 'available'`);
+      params.push(['available', 'on_hold', 'on_memo', 'in_transit']);
+      conditions.push(`coalesce(stock_status, 'available') = ANY($${params.length})`);
       conditions.push(`NOT EXISTS (
         SELECT 1 FROM request_stones rs
         JOIN requests r ON r.id = rs.request_id
@@ -294,7 +295,8 @@ router.get('/jewelry', async (req, res, next) => {
       conditions.push(`diamond_cts <= $${params.length}`);
     }
     if (requestableOnly === 'true') {
-      conditions.push(`coalesce(stock_status, 'available') = 'available'`);
+      params.push(['available', 'on_hold', 'on_memo', 'in_transit']);
+      conditions.push(`coalesce(stock_status, 'available') = ANY($${params.length})`);
       conditions.push(`NOT EXISTS (
         SELECT 1 FROM request_stones rs
         JOIN requests r ON r.id = rs.request_id
