@@ -109,6 +109,45 @@ async function findCandidates(queryable, {
   return rows.map(mapCandidate);
 }
 
+// When no candidate matches at this receiving branch, this looks for the
+// same barcode's active internal-transfer request routed to a DIFFERENT
+// branch (or a request that isn't a receivable branch shipment at all —
+// local pickup, or shipped/dropped directly to a customer). Surfacing this
+// turns a dead-end "no matching request" into an actionable diagnostic for
+// every branch: the CH room can see a request was actually sent to LA
+// instead of a silent miss, without inventory needing database access.
+async function findElsewhereMatch(queryable, { receivingBranch, barcode }) {
+  const { rows } = await queryable.query(
+    `SELECT r.id AS request_id, r.cross_branch, r.delivery_route,
+            r.fulfillment_branch AS source_branch,
+            COALESCE(r.delivery_branch, r.branch) AS destination_branch,
+            sr.id AS rep_id, sr.name AS rep_name
+     FROM requests r
+     JOIN request_stones rs ON rs.request_id = r.id
+     JOIN sales_reps sr ON sr.id = r.sales_rep_id
+     WHERE UPPER(rs.barcode) = $1
+       AND r.status <> 'cancelled'
+       AND COALESCE(r.transfer_status, 'awaiting_source') <> 'handed_to_rep'
+       AND NOT (
+         COALESCE(r.delivery_branch, r.branch) = $2
+         AND r.cross_branch = true
+         AND r.delivery_route = 'internal_transfer'
+       )
+     ORDER BY r.requested_at DESC
+     LIMIT 1`,
+    [barcode, receivingBranch]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    requestId: Number(row.request_id),
+    sourceBranch: row.source_branch,
+    destinationBranch: row.cross_branch ? row.destination_branch : row.source_branch,
+    receivableAtABranch: row.cross_branch && row.delivery_route === 'internal_transfer',
+    rep: { id: Number(row.rep_id), name: row.rep_name },
+  };
+}
+
 async function findPreviousReceipts(queryable, receivingBranch, barcode) {
   const { rows } = await queryable.query(
     `SELECT sh.id, sh.request_id, sh.request_stone_id, sh.barcode,
@@ -400,11 +439,15 @@ router.get('/lookup', async (req, res, next) => {
       findCandidates(pool, { receivingBranch, barcode }),
       findPreviousReceipts(pool, receivingBranch, barcode),
     ]);
+    const elsewhere = candidates.length === 0
+      ? await findElsewhereMatch(pool, { receivingBranch, barcode })
+      : null;
     res.json({
       barcode,
       receivingBranch,
       candidates,
       previousReceipts,
+      elsewhere,
     });
   } catch (error) {
     sendRouteError(res, next, error);

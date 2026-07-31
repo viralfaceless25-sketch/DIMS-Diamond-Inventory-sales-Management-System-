@@ -437,11 +437,23 @@ export interface PreviousReceipt {
   receivedByEmail: string;
 }
 
+export interface ReceiptElsewhereMatch {
+  requestId: number;
+  sourceBranch: string;
+  destinationBranch: string;
+  // False for a local pickup or a shipment going straight to a customer —
+  // nothing a stockroom will ever receive, as opposed to a genuine
+  // misrouted branch shipment.
+  receivableAtABranch: boolean;
+  rep: { id: number; name: string };
+}
+
 export interface ReceiptLookup {
   barcode: string;
   receivingBranch: string;
   candidates: ReceiptCandidate[];
   previousReceipts: PreviousReceipt[];
+  elsewhere: ReceiptElsewhereMatch | null;
 }
 
 export type ReceiptStatus =

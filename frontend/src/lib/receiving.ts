@@ -91,3 +91,23 @@ export function defaultComponents(requestScope?: string): {
 export function batchReadyCount(rows: ReceiptFormState[]): number {
   return rows.filter((row) => receiptFormReady(row)).length;
 }
+
+// Turns a lookup's "elsewhere" diagnostic into the message shown to
+// inventory when nothing matched at their own branch — so a misrouted branch
+// shipment reads as "this went to LA, not you" instead of a dead-end
+// "no matching request", the same way at every branch.
+export function elsewhereMessage(
+  elsewhere: {
+    destinationBranch: string;
+    receivableAtABranch: boolean;
+    rep: { name: string };
+  } | null
+): string {
+  if (!elsewhere) {
+    return 'No open request matched. You can still save it for review after selecting the sending branch.';
+  }
+  if (!elsewhere.receivableAtABranch) {
+    return `A request for this barcode exists but ships directly to the customer via ${elsewhere.rep.name} — it is not received at any branch stockroom.`;
+  }
+  return `This barcode is being shipped to ${elsewhere.destinationBranch} for ${elsewhere.rep.name}, not here. Ask ${elsewhere.destinationBranch} inventory to receive it.`;
+}

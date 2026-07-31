@@ -18,6 +18,7 @@ import {
   componentSummary,
   defaultCandidateId,
   defaultComponents,
+  elsewhereMessage,
   receiptFormReady,
   shiftIsoDate,
 } from '@/lib/receiving';
@@ -28,6 +29,7 @@ type BatchRow = {
   loading: boolean;
   candidates: ReceiptCandidate[];
   previousCount: number;
+  elsewhereNote: string;
   requestStoneId: number | null;
   sourceBranch: string;
   stoneReceived: boolean;
@@ -242,7 +244,7 @@ export default function ReceivingPage() {
       setStoneReceived(null);
       setCertReceived(null);
       if (!result.candidates.length) {
-        setMessage('No open request matched. You can still save it for review after selecting the sending branch.');
+        setMessage(elsewhereMessage(result.elsewhere));
       } else if (result.candidates.length > 1) {
         setMessage('More than one request matched. Select the correct sales rep before saving.');
       }
@@ -333,7 +335,7 @@ export default function ReceivingPage() {
     const key = `${normalized}-${Date.now()}`;
     setBatchRows((rows) => [
       ...rows,
-      { key, barcode: normalized, loading: true, candidates: [], previousCount: 0, requestStoneId: null, sourceBranch: '', stoneReceived: true, certReceived: true, note: '', saved: false, error: '' },
+      { key, barcode: normalized, loading: true, candidates: [], previousCount: 0, elsewhereNote: '', requestStoneId: null, sourceBranch: '', stoneReceived: true, certReceived: true, note: '', saved: false, error: '' },
     ]);
     setBatchScanning(true);
     try {
@@ -346,6 +348,7 @@ export default function ReceivingPage() {
         loading: false,
         candidates: result.candidates,
         previousCount: result.previousReceipts.length,
+        elsewhereNote: result.candidates.length === 0 ? elsewhereMessage(result.elsewhere) : '',
         requestStoneId: selectedId,
         sourceBranch: chosen?.sourceBranch || '',
         stoneReceived: components.stoneReceived,
@@ -441,7 +444,7 @@ export default function ReceivingPage() {
     try {
       const result = await api.receiptLookup(row.barcode);
       if (!result.candidates.length) {
-        setMessage(`No open ${branch} request currently matches ${row.barcode}.`);
+        setMessage(elsewhereMessage(result.elsewhere));
         return;
       }
       let candidate = result.candidates[0];
@@ -774,6 +777,9 @@ export default function ReceivingPage() {
                             ) : (
                               <div>
                                 <div style={{ font: "700 10.5px 'Inter'", color: t.textFaint, marginBottom: 6 }}>No open request matched — pick the sending branch</div>
+                                {row.elsewhereNote && (
+                                  <div style={{ font: "600 10.5px 'Inter'", color: AMBER, marginBottom: 6 }}>{row.elsewhereNote}</div>
+                                )}
                                 <select value={row.sourceBranch} onChange={(event) => updateRow(row.key, { sourceBranch: event.target.value })} style={{ ...inputStyle, minWidth: 170 }}>
                                   <option value="">Select branch</option>
                                   {BRANCHES.filter((item) => item !== branch).map((item) => <option key={item}>{item}</option>)}

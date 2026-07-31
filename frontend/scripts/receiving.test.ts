@@ -6,6 +6,7 @@ import {
   componentSummary,
   defaultCandidateId,
   defaultComponents,
+  elsewhereMessage,
   receiptFormReady,
   shiftIsoDate,
 } from '../src/lib/receiving';
@@ -103,4 +104,19 @@ test('batchReadyCount counts only rows that pass per-receipt validation', () => 
     { barcode: 'A-4', stoneReceived: false, certReceived: false, candidateCount: 1, requestStoneId: 9, sourceBranch: '', receivingBranch: 'NY' },
   ];
   assert.equal(batchReadyCount(rows), 2);
+});
+
+test('elsewhereMessage explains a misrouted barcode instead of a dead-end', () => {
+  assert.equal(
+    elsewhereMessage(null),
+    'No open request matched. You can still save it for review after selecting the sending branch.'
+  );
+  assert.equal(
+    elsewhereMessage({ destinationBranch: 'LA', receivableAtABranch: true, rep: { name: 'Romil' } }),
+    'This barcode is being shipped to LA for Romil, not here. Ask LA inventory to receive it.'
+  );
+  assert.equal(
+    elsewhereMessage({ destinationBranch: 'CH', receivableAtABranch: false, rep: { name: 'Karan' } }),
+    'A request for this barcode exists but ships directly to the customer via Karan — it is not received at any branch stockroom.'
+  );
 });
