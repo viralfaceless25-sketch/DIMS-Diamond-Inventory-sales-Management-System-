@@ -8,6 +8,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '../repContext';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
+import { Copyable } from '@/components/ui';
 
 const STATUS_COLOR: Record<string, string> = {
   requested: AMBER,
@@ -80,8 +81,10 @@ export default function RepTrackingPage() {
                   style={{ width: '100%', display: 'grid', gridTemplateColumns: 'minmax(150px,1fr) 110px 90px minmax(150px,1fr) 120px 28px', gap: 10, padding: '13px 15px', alignItems: 'center', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer' }}
                 >
                   <div>
-                    <div style={{ font: "800 12px 'JetBrains Mono'", color: ACCENT }}>{row.barcode}</div>
-                    <div style={{ font: "500 9.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>{row.cert_no || 'No certificate number'}</div>
+                    <Copyable value={row.barcode} style={{ font: "800 12px 'JetBrains Mono'", color: ACCENT }} />
+                    <div style={{ font: "500 9.5px 'Inter'", color: t.textFaint, marginTop: 3 }}>
+                      {row.cert_no ? <Copyable value={row.cert_no} /> : 'No certificate number'}
+                    </div>
                   </div>
                   <div style={{ font: "700 10.5px 'Inter'", color: t.textMuted }}>{row.fulfillment_branch || row.branch} → {row.delivery_branch || row.branch}</div>
                   <div>

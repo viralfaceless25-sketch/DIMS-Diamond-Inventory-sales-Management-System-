@@ -181,6 +181,8 @@ export interface RequestSummary extends ErpTransferFields {
   dropoffAddress: string | null;
   rep: { id: number; name: string };
   stoneCount: number;
+  stoneFoundCount: number;
+  certFoundCount: number;
   hasDuplicate: boolean;
 }
 

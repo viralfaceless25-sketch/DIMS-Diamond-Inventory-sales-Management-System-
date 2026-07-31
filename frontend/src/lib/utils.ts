@@ -61,3 +61,21 @@ export const TRACKING_LABELS: Record<string, string> = {
   with_rep: 'With rep',
   returned: 'Returned',
 };
+
+// Maitri stock number shape: 5-10 leading digits, a hyphen, then 2-6
+// alphanumerics (e.g. "1509620-132", "188140-009A", "220156-017"). Matches
+// the backend's invoiceParser.js BARCODE_GLOBAL exactly, so a barcode
+// recognized in an uploaded PDF is recognized the same way when pasted
+// anywhere else. Global so a block of pasted text (multiple barcodes,
+// mixed with other invoice/memo details) yields every barcode it contains,
+// not just the first.
+export const BARCODE_PATTERN = /\b\d{5,10}-[A-Z0-9]{2,6}\b/gi;
+
+// Pulls every barcode-shaped token out of arbitrary pasted text — a scanner
+// dump, several stock numbers separated by spaces/newlines/commas, or a
+// whole invoice line. De-duplicates and caps at 50 (matches the backend's
+// per-request stone limit) so a huge accidental paste can't hang the UI.
+export function extractBarcodes(text: string): string[] {
+  const matches = text.match(BARCODE_PATTERN) || [];
+  return [...new Set(matches.map((barcode) => barcode.toUpperCase()))].slice(0, 50);
+}

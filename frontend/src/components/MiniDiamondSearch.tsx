@@ -5,7 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, LooseStone } from '@/lib/api';
 import { Theme, ACCENT } from '@/lib/theme';
 import { availabilityText } from '@/lib/requestWorkflow';
-import { fmtCarat } from '@/lib/utils';
+import { Copyable } from '@/components/ui';
+import { fmtCarat, extractBarcodes } from '@/lib/utils';
 import { useQuickSearch } from '@/app/rep/repContext';
 
 // Compact always-on stock lookup for the sales-rep sidebar. Reps can find a
@@ -34,6 +35,22 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
     setLoading(true);
     const timer = window.setTimeout(async () => {
       try {
+        // A paste with 2+ recognized Maitri barcodes is a batch lookup, not
+        // one fuzzy search term — the backend only matches a single search
+        // string, so look each barcode up individually and merge the results.
+        const barcodes = extractBarcodes(term);
+        if (barcodes.length > 1) {
+          const results = await Promise.all(
+            barcodes.slice(0, 10).map((code) =>
+              api.looseStock({ branch: 'ALL', search: code, page: 1, pageSize: 1, requestableOnly: false })
+                .then((res) => res.rows.find((row) => row.barcode.toUpperCase() === code) || null)
+                .catch(() => null)
+            )
+          );
+          setRows(results.filter((row): row is LooseStone => Boolean(row)));
+          setOpen(true);
+          return;
+        }
         const res = await api.looseStock({
           branch: 'ALL',
           search: term,
@@ -100,7 +117,7 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: `1px solid ${t.border}`, background: 'transparent', cursor: 'pointer', color: t.text }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <span style={{ font: "700 11.5px 'Inter'" }}>{stone.barcode}</span>
+                <Copyable value={stone.barcode} style={{ font: "700 11.5px 'Inter'" }} />
                 <span style={{ font: "700 9px 'Inter'", color: ACCENT }}>{stone.branch}</span>
               </div>
               <div style={{ font: "500 10px 'Inter'", color: t.textFaint, marginTop: 2 }}>

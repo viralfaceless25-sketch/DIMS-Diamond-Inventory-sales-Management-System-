@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme, useCartBadge, useStockFilters, useQuickSearch } from '../repContext';
 import { ACCENT, AMBER, RED } from '@/lib/theme';
-import { fmtCarat, fmtMeasurements, sortStonesClient } from '@/lib/utils';
+import { fmtCarat, fmtMeasurements, sortStonesClient, extractBarcodes } from '@/lib/utils';
 import {
   availabilityText,
   canAddToHomeBranch,
@@ -19,7 +19,7 @@ import {
   fulfillmentChoicesFor,
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
-import { Check } from '@/components/ui';
+import { Check, Copyable } from '@/components/ui';
 
 interface CartItem {
   barcode: string;
@@ -39,11 +39,6 @@ interface CartItem {
 type RequestScope = 'stone_and_cert' | 'stone_only' | 'cert_only';
 
 const STOCK_TABLE_COLUMNS = '40px minmax(0,1.1fr) 48px 90px 70px minmax(165px,1.1fr) 50px 60px minmax(0,1.1fr)';
-
-function extractBarcodes(value: string) {
-  const matches = value.match(/\b\d{5,8}-\d{2,4}[A-Z]?\b/gi) || [];
-  return [...new Set(matches.map((barcode) => barcode.toUpperCase()))].slice(0, 50);
-}
 
 export default function RequestStonesPage() {
   const { user } = useAuth();
@@ -572,7 +567,7 @@ export default function RequestStonesPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
                 {extracted.map((s) => (
                   <div key={s.barcode} style={{ display: 'grid', gridTemplateColumns: '110px 42px 70px 55px 50px 60px minmax(0,1fr)', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
-                    <span style={{ color: t.text }}>{s.barcode}</span>
+                    <Copyable value={s.barcode} style={{ color: t.text }} />
                     <span style={{ font: "800 10px 'Inter'", color: t.textMuted }}>{s.stockBranch || s.branch || '—'}</span>
                     <span>{s.shape || '—'}</span>
                     <span>{fmtCarat(s.carat)}</span>
@@ -603,7 +598,7 @@ export default function RequestStonesPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {unavailableNow.map((s) => (
                   <div key={s.barcode} style={{ display: 'flex', gap: 10, alignItems: 'center', font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>
-                    <span style={{ color: t.text, minWidth: 110 }}>{s.barcode}</span>
+                    <Copyable value={s.barcode} style={{ color: t.text, minWidth: 110 }} />
                     <span style={{ font: "500 10.5px 'Inter'", color: RED }}>
                       {extractedReason(s)}
                     </span>

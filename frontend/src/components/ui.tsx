@@ -1,7 +1,68 @@
 'use client';
 
+import { useState } from 'react';
 import { ACCENT, AMBER, GREEN, RED, BLUE } from '@/lib/theme';
 import { STATUS_LABELS } from '@/lib/utils';
+
+// Wraps a barcode/cert number so clicking the text itself copies it — no
+// separate "Copy" button anywhere in the app. Feedback is a brief text-color
+// flash rather than appended text, so it never disturbs the tight grid
+// layouts these values usually sit in. stopPropagation so a barcode inside a
+// larger clickable row (e.g. an "add to cart" row) can be copied without
+// also triggering the row's own click.
+export function Copyable({
+  value,
+  children,
+  className,
+  style,
+}: {
+  value: string;
+  children?: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleClick(e: React.SyntheticEvent) {
+    e.stopPropagation();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1100);
+    } catch {
+      // Clipboard API unavailable (non-HTTPS/old browser) — nothing more we
+      // can do without a fallback UI; fail silently rather than error out.
+    }
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className={className}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick(e);
+        }
+      }}
+      title={copied ? 'Copied' : `Click to copy ${value}`}
+      style={{
+        cursor: value ? 'pointer' : 'default',
+        transition: 'color 0.15s',
+        ...style,
+        // The "copied" flash must win over the caller's own color, but only
+        // while it's actually showing — otherwise this permanently pins the
+        // color and the caller's normal styling never applies.
+        ...(copied ? { color: ACCENT } : {}),
+      }}
+    >
+      {children ?? value}
+    </span>
+  );
+}
 
 // Click-to-toggle checkbox — a styled div with an inline SVG check, matching
 // the prototype (not a native input). `accent` lets callers vary the fill.

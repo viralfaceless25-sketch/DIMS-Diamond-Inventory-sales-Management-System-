@@ -6,7 +6,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useAuth } from '@/lib/auth';
 import { TopBar } from '@/components/TopBar';
-import { Check, StatusBadge, DuplicateBadge, Avatar } from '@/components/ui';
+import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
 import {
@@ -31,7 +31,6 @@ export default function RequestsPage() {
   const [expanded, setExpanded] = useState<Record<number, RequestDetail>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [scanMessage, setScanMessage] = useState('');
-  const [copiedBarcode, setCopiedBarcode] = useState('');
   const [rechecks, setRechecks] = useState<StockRecheck[]>([]);
   const [loading, setLoading] = useState(true);
   const scannerBufferRef = useRef({ value: '', lastKeyAt: 0 });
@@ -243,16 +242,6 @@ export default function RequestsPage() {
     }
   }
 
-  async function copyBarcode(barcode: string) {
-    try {
-      await navigator.clipboard.writeText(barcode);
-      setCopiedBarcode(barcode);
-      window.setTimeout(() => setCopiedBarcode((current) => current === barcode ? '' : current), 1800);
-    } catch {
-      window.alert(`Could not copy ${barcode}. Select the barcode and copy it manually.`);
-    }
-  }
-
   async function openShippingLabel(requestId: number) {
     try {
       const url = await api.shippingLabelUrl(requestId);
@@ -390,10 +379,7 @@ export default function RequestsPage() {
               {rechecks.map((recheck) => (
                 <div key={recheck.id} style={{ display: 'grid', gridTemplateColumns: '160px minmax(130px,1fr) 120px minmax(340px,auto)', gap: 10, alignItems: 'center', padding: '9px 10px', background: t.bgCard, border: `1px solid ${t.borderLight}`, borderRadius: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ font: "800 11px 'JetBrains Mono'", color: t.text }}>{recheck.barcode}</span>
-                    <button onClick={() => copyBarcode(recheck.barcode)} style={{ padding: '3px 5px', borderRadius: 4, border: `1px solid ${t.borderLight}`, background: t.bgSide, color: t.textMuted, cursor: 'pointer', font: "700 9px 'Inter'" }}>
-                      {copiedBarcode === recheck.barcode ? 'Copied' : 'Copy'}
-                    </button>
+                    <Copyable value={recheck.barcode} style={{ font: "800 11px 'JetBrains Mono'", color: t.text }} />
                   </div>
                   <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>
                     {recheck.salesRepName || 'Sales rep'} · snapshot {recheck.snapshot.stockStatus?.replaceAll('_', ' ') || 'missing'}
@@ -451,7 +437,6 @@ export default function RequestsPage() {
                     <Avatar name={group.label} color={avatarColor(groupIndex)} size={30} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ font: "800 13px 'Inter'", color: groupAccent(group.label), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
-                      <div style={{ font: "500 10.5px 'Inter'", color: t.textFaint }}>Requests grouped by fulfillment route</div>
                     </div>
                     <div style={{ font: "600 11.5px 'Inter'", color: t.textFaint, textAlign: 'right' }}>
                       {group.requests.length} request{group.requests.length === 1 ? '' : 's'} / {groupStoneCount} stone{groupStoneCount === 1 ? '' : 's'}
@@ -485,12 +470,15 @@ export default function RequestsPage() {
                                   <RequestTypeBadge label={requestTypeLabel(r.requestType)} styleInfo={requestTypeStyle(r.requestType)} />
                                 </div>
                                 <div style={{ font: "500 11.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
-                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}${r.deliveryRoute === 'customer_ship' ? ` - paperwork: ${documents.paperworkComplete ? r.paperworkType : 'pending'}` : ''}` : requestScopeLabel(r.requestScope)} - {r.source === 'invoice_upload' ? 'via invoice' : 'manual'}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
+                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}` : requestScopeLabel(r.requestScope)}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
                                 </div>
                               </div>
                               <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>
                               <div style={{ font: "400 11.5px 'Inter'", color: t.textFaint }}>{timeAgo(r.requestedAt)}</div>
-                              <div style={{ font: "600 12px Arial, sans-serif", color: t.textMuted }}>{r.stoneCount} stone{r.stoneCount === 1 ? '' : 's'}</div>
+                              <div style={{ font: "700 11px Arial, sans-serif", color: t.textMuted, lineHeight: 1.4 }}>
+                                {r.requestScope !== 'cert_only' && <div>STN {r.stoneFoundCount}/{r.stoneCount}</div>}
+                                {r.requestScope !== 'stone_only' && <div>CERT {r.certFoundCount}/{r.stoneCount}</div>}
+                              </div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                                 <StatusBadge status={r.status} />
                                 {r.deliveryRoute === 'customer_ship' && !documents.paperworkComplete && <span style={{ font: "800 9.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
@@ -501,11 +489,11 @@ export default function RequestsPage() {
 
                             {detail && (
                               <div style={{ borderTop: `1px solid ${t.border}`, background: t.bgSide, overflowX: 'auto' }}>
-                                <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 9, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
-                                  <span style={{ font: "800 11px 'Inter'", color: t.text }}>BARCODE SCANNER READY</span>
-                                  <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>Scan a requested physical stone now. No field needs to be selected.</span>
-                                  {scanMessage && <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{scanMessage}</span>}
-                                </div>
+                                {scanMessage && (
+                                  <div style={{ padding: '10px 18px', borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
+                                    <span style={{ font: "600 11px 'Inter'", color: t.textFaint }}>{scanMessage}</span>
+                                  </div>
+                                )}
                                 {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) && (
                                   <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 9, borderBottom: `1px solid ${t.border}`, minWidth: 1040 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -539,7 +527,6 @@ export default function RequestsPage() {
                                         {r.erpTransferConfirmed && !r.erpTransferReceived && user?.branch === r.deliveryBranch && (
                                           <button onClick={() => confirmErpReceived(r.id)} style={{ padding: '7px 10px', borderRadius: 7, border: 'none', background: r.erpReceiveRequested ? AMBER : ACCENT, color: '#0a0e0d', cursor: 'pointer', font: "800 10.5px 'Inter'" }}>Receive ERP BT now</button>
                                         )}
-                                        <span style={{ font: "500 9.5px 'Inter'", color: t.textFaint }}>Digital receipt is independent of physical arrival.</span>
                                       </div>
                                     )}
 
@@ -590,21 +577,16 @@ export default function RequestsPage() {
                                     <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} />
                                     <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" />
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.barcode}</span>
-                                      <button
-                                        onClick={() => copyBarcode(s.barcode)}
-                                        title={`Copy ${s.barcode}`}
-                                        style={{ flex: 'none', padding: '4px 7px', borderRadius: 5, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: copiedBarcode === s.barcode ? ACCENT : t.textMuted, cursor: 'pointer', font: "700 9.5px 'Inter'" }}
-                                      >
-                                        {copiedBarcode === s.barcode ? 'Copied' : 'Copy barcode'}
-                                      </button>
+                                      <Copyable value={s.barcode} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                                       {s.duplicate && <span title={`Also held by: ${s.duplicateWith?.join(', ')}`} style={{ color: RED, flex: 'none' }}>!</span>}
                                     </div>
                                     <div style={{ font: "700 14px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.item_type === 'jewelry' ? (s.item || s.category || 'Jewelry') : (s.shape || '-')}</div>
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.item_type === 'jewelry' ? `${fmtCarat(s.carat)} d.cts` : fmtCarat(s.carat)}</div>
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.color || '-'}</div>
                                     <div style={{ font: "700 14px Arial, sans-serif", color: t.text }}>{s.clarity || '-'}</div>
-                                    <div style={{ font: "700 13.5px Arial, sans-serif", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.cert_no || '-'}</div>
+                                    <div style={{ font: "700 13.5px Arial, sans-serif", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {s.cert_no ? <Copyable value={s.cert_no} /> : '-'}
+                                    </div>
                                   </div>
                                 ))}
                                 </div>

@@ -323,8 +323,15 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
 
     const withStoneCounts = await Promise.all(
       filtered.map(async (r) => {
+        // One row with all three counts — avoids a second round trip just to
+        // derive the same "found" progress the checkboxes already track, so
+        // the collapsed request row can show Stone/Cert progress without
+        // requiring the detail fetch that only runs once a row is expanded.
         const { rows: countRows } = await pool.query(
-          'SELECT count(*) FROM request_stones WHERE request_id = $1',
+          `SELECT count(*) AS total,
+                  count(*) FILTER (WHERE stone_found) AS stone_found,
+                  count(*) FILTER (WHERE cert_found) AS cert_found
+           FROM request_stones WHERE request_id = $1`,
           [r.id]
         );
         const { rows: dupRows } = await pool.query(
@@ -372,7 +379,9 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           dropoffCompany: r.dropoff_company,
           dropoffAddress: r.dropoff_address,
           rep: { id: r.rep_id, name: r.rep_name },
-          stoneCount: Number(countRows[0].count),
+          stoneCount: Number(countRows[0].total),
+          stoneFoundCount: Number(countRows[0].stone_found),
+          certFoundCount: Number(countRows[0].cert_found),
           hasDuplicate,
         };
       })

@@ -6,15 +6,18 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('inventory requests expose ERP confirmation and barcode copy actions', () => {
+test('inventory requests expose ERP confirmation and click-to-copy barcodes', () => {
   const page = read('src/app/dashboard/requests/page.tsx');
   assert.match(page, /MAITRI ERP DIGITAL BT/);
   assert.match(page, /confirmErpTransfer/);
   assert.match(page, /confirmErpReceived/);
   assert.match(page, /rejectErpTransfer/);
   assert.match(page, /LIVE MAITRI ERP RECHECKS/);
-  assert.match(page, /navigator\.clipboard\.writeText/);
-  assert.match(page, /Copy barcode/);
+  // Barcodes/certs copy on click via the shared Copyable component — no
+  // dedicated "Copy barcode" button, and no direct clipboard call inline.
+  assert.match(page, /<Copyable\b/);
+  assert.doesNotMatch(page, /Copy barcode/);
+  assert.doesNotMatch(page, /navigator\.clipboard\.writeText/);
 });
 
 test('sales-rep requests have no manual branch-pair routing controls', () => {

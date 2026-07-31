@@ -12,7 +12,9 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useBranchSocket } from '@/lib/socket';
+import { Copyable } from '@/components/ui';
 import { ACCENT, AMBER, GREEN, RED } from '@/lib/theme';
+import { extractBarcodes } from '@/lib/utils';
 import {
   branchToday,
   componentSummary,
@@ -226,8 +228,19 @@ export default function ReceivingPage() {
 
   async function findBarcode(event?: FormEvent) {
     event?.preventDefault();
-    const normalized = barcode.trim().toUpperCase();
-    if (!normalized) return;
+    const found = extractBarcodes(barcode);
+    if (!found.length) return;
+    if (found.length > 1) {
+      // More than one barcode was pasted/scanned into the single-item box —
+      // that's a batch, not a single lookup. addBatchScan does its own
+      // extraction, so the raw text can be handed to it directly.
+      const raw = barcode;
+      setBarcode('');
+      openBatch();
+      void addBatchScan(raw);
+      return;
+    }
+    const normalized = found[0];
     setScanLoading(true);
     setMessage('');
     try {
@@ -321,18 +334,26 @@ export default function ReceivingPage() {
     setBatchRows((rows) => rows.filter((row) => row.key !== key));
   }
 
+  // Accepts one scan OR a whole pasted block containing several barcodes
+  // (space/newline/comma-separated, mixed with other invoice text) — every
+  // Maitri-shaped barcode found is added as its own row and looked up.
   async function addBatchScan(raw: string) {
-    const normalized = raw.trim().toUpperCase();
     setBatchScan('');
-    if (!normalized) return;
-    // Re-scanning a barcode already in the batch (and not yet saved) just
-    // re-focuses it rather than silently creating a second identical row.
-    const existing = batchRows.find((row) => row.barcode === normalized && !row.saved);
-    if (existing) {
-      setMessage(`${normalized} is already in this batch.`);
-      return;
+    const barcodes = extractBarcodes(raw);
+    if (!barcodes.length) return;
+    const skipped: string[] = [];
+    for (const normalized of barcodes) {
+      const existing = batchRows.find((row) => row.barcode === normalized && !row.saved);
+      if (existing) { skipped.push(normalized); continue; }
+      await addOneBatchBarcode(normalized);
     }
-    const key = `${normalized}-${Date.now()}`;
+    if (skipped.length) {
+      setMessage(`${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} already in this batch.`);
+    }
+  }
+
+  async function addOneBatchBarcode(normalized: string) {
+    const key = `${normalized}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setBatchRows((rows) => [
       ...rows,
       { key, barcode: normalized, loading: true, candidates: [], previousCount: 0, elsewhereNote: '', requestStoneId: null, sourceBranch: '', stoneReceived: true, certReceived: true, note: '', saved: false, error: '' },
@@ -692,7 +713,7 @@ export default function ReceivingPage() {
                 {!historyLoading && history.map((row) => (
                   <tr key={row.id} style={{ font: "600 11.5px 'Inter'", borderBottom: `1px solid ${t.rowBorder}` }}>
                     <td style={{ padding: '13px' }}>{new Date(row.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</td>
-                    <td style={{ padding: '13px', fontWeight: 800 }}>{row.barcode}</td>
+                    <td style={{ padding: '13px', fontWeight: 800 }}><Copyable value={row.barcode} /></td>
                     <td style={{ padding: '13px', color: row.stoneReceived ? GREEN : t.textFaint }}>{row.stoneReceived ? 'Yes' : 'No'}</td>
                     <td style={{ padding: '13px', color: row.certReceived ? GREEN : t.textFaint }}>{row.certReceived ? 'Yes' : 'No'}</td>
                     <td style={{ padding: '13px' }}>{row.sourceBranch}</td>
@@ -750,7 +771,7 @@ export default function ReceivingPage() {
               {batchRows.map((row) => (
                 <div key={row.key} style={{ ...card, padding: 12, marginBottom: 10, opacity: row.saved ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: row.saved ? 0 : 10 }}>
-                    <div style={{ font: "800 13px 'Inter'", flex: 1 }}>{row.barcode}</div>
+                    <Copyable value={row.barcode} style={{ font: "800 13px 'Inter'", flex: 1 }} />
                     {row.saved && <span style={{ color: GREEN, font: "700 11px 'Inter'" }}>Saved ✓</span>}
                     {row.previousCount > 0 && !row.saved && <span style={{ color: AMBER, font: "600 10.5px 'Inter'" }}>Scanned before</span>}
                     {!row.saved && <button type="button" onClick={() => removeRow(row.key)} style={{ ...inputStyle, cursor: 'pointer', padding: '4px 9px' }}>Remove</button>}
@@ -823,7 +844,7 @@ export default function ReceivingPage() {
       {editing && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ ...card, width: 430, maxWidth: '100%', padding: 20, boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
-            <div style={{ font: "800 15px 'Inter'" }}>Correct {editing.barcode}</div>
+            <div style={{ font: "800 15px 'Inter'" }}>Correct <Copyable value={editing.barcode} /></div>
             <div style={{ color: t.textFaint, font: "500 11px 'Inter'", marginTop: 4 }}>
               The original scan remains in the audit history.
             </div>

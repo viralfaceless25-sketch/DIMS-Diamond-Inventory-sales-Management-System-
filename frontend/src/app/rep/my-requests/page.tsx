@@ -7,7 +7,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '../repContext';
 import { ACCENT, AMBER, GREEN, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat, sortStonesClient, STATUS_LABELS } from '@/lib/utils';
-import { Check } from '@/components/ui';
+import { Check, Copyable } from '@/components/ui';
 import {
   documentStepState,
   hasDeliveryWorkflow,
@@ -372,7 +372,7 @@ export default function MyRequestsPage() {
                       {sortStonesClient(request.stones).map((stone) => (
                         <div key={stone.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 90px 70px 50px 60px 44px 44px', gap: 8, padding: '9px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stone.barcode}</div>
+                            <Copyable value={stone.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                             {stone.liveErpVerification && <div style={{ font: "700 9px 'Inter'", color: GREEN }}>Live ERP availability verified</div>}
                             {stone.snapshotReconciliation?.state === 'mismatch' && <div style={{ font: "700 9px 'Inter'", color: RED }}>Snapshot needs inventory review</div>}
                           </div>

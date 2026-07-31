@@ -6,6 +6,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
+import { Copyable } from '@/components/ui';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
 
@@ -111,8 +112,10 @@ export default function TrackingPage() {
                   onClick={() => setExpanded((current) => ({ ...current, [row.id]: !current[row.id] }))}
                   style={{ width: '100%', display: 'grid', gridTemplateColumns: summaryCols, gap: 10, padding: '12px 16px', minWidth: 980, alignItems: 'center', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <div style={{ font: "800 12.5px 'JetBrains Mono'", color: ACCENT }}>{row.barcode}</div>
-                  <div style={{ font: "600 11.5px 'Inter'", color: t.textMuted }}>{row.cert_no || '—'}</div>
+                  <Copyable value={row.barcode} style={{ font: "800 12.5px 'JetBrains Mono'", color: ACCENT }} />
+                  <div style={{ font: "600 11.5px 'Inter'", color: t.textMuted }}>
+                    {row.cert_no ? <Copyable value={row.cert_no} /> : '—'}
+                  </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ font: "700 11.5px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.rep_name}</div>
                     <div style={{ font: "500 10px 'Inter'", color: t.textFaint }}>Request #{row.request_id}</div>
@@ -170,12 +173,14 @@ export default function TrackingPage() {
                         <div key={event.id} style={{ display: 'grid', gridTemplateColumns: '145px 80px 155px 95px minmax(160px,1fr) 90px 90px 115px minmax(120px,1fr)', gap: 10, padding: '11px 12px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
                           <div style={{ font: "500 10.5px 'Inter'", color: t.textFaint }}>{formatDate(event.createdAt)}</div>
                           <div style={{ font: "700 10.5px 'Inter'", color: t.textMuted }}>#{row.request_id}</div>
-                          <div style={{ font: "700 11px 'JetBrains Mono'", color: ACCENT }}>{row.barcode}</div>
+                          <Copyable value={row.barcode} style={{ font: "700 11px 'JetBrains Mono'", color: ACCENT }} />
                           <div style={{ font: "700 10.5px 'Inter'", color: t.textMuted }}>{event.fromBranch || row.current_branch}</div>
                           <div style={{ font: "700 10.5px 'Inter'", color: event.movementType.includes('transfer') ? ACCENT : t.text }}>{event.movementLabel}</div>
                           <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>{event.fromBranch || '—'}</div>
                           <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>{event.toBranch || 'Customer'}</div>
-                          <div style={{ font: "600 10.5px 'Inter'", color: row.cert_found ? ACCENT : t.textFaint }}>{row.cert_found ? 'Confirmed' : row.cert_no || 'Pending'}</div>
+                          <div style={{ font: "600 10.5px 'Inter'", color: row.cert_found ? ACCENT : t.textFaint }}>
+                            {row.cert_found ? 'Confirmed' : row.cert_no ? <Copyable value={row.cert_no} /> : 'Pending'}
+                          </div>
                           <div style={{ font: "600 10.5px 'Inter'", color: t.textMuted }}>{event.actorName}</div>
                         </div>
                       ))}

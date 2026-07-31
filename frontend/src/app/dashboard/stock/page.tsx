@@ -5,6 +5,7 @@ import { api, LooseStone, JewelryPiece } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
+import { Copyable } from '@/components/ui';
 import { ACCENT, AMBER, RED, COLOR_ORDER, CLARITY_ORDER } from '@/lib/theme';
 import { fmtCarat, fmtMeasurements } from '@/lib/utils';
 
@@ -302,14 +303,16 @@ function LooseTable({ rows, t, loading }: { rows: LooseStone[]; t: import('@/lib
         const av = availabilityLabel(r.availability);
         return (
           <div key={r.barcode} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.barcode}</div>
+            <Copyable value={r.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
             <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{r.shape || '—'}</div>
             <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.textMuted }}>{fmtCarat(r.carat)}</div>
             <div style={{ font: "600 11px Arial, sans-serif", color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtMeasurements(r.length_mm, r.width_mm, r.height_mm, r.lw_ratio)}</div>
             <div style={{ font: "400 11px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.color || ''}>{r.color || '—'}</div>
             <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text }}>{r.clarity || '—'}</div>
             <div style={{ font: "400 11px 'Inter'", color: t.textMuted }}>{r.lab || '—'}</div>
-            <div style={{ font: "500 11px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.certificate_no || '—'}</div>
+            <div style={{ font: "500 11px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.certificate_no ? <Copyable value={r.certificate_no} /> : '—'}
+            </div>
             <div style={{ font: "600 10.5px 'Inter'", color: av.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{av.text}</div>
           </div>
         );
@@ -331,7 +334,7 @@ function JewelryTable({ rows, t, loading }: { rows: JewelryPiece[]; t: import('@
         const av = availabilityLabel(r.availability);
         return (
           <div key={r.barcode} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, padding: '10px 16px', alignItems: 'center', borderTop: `1px solid ${t.rowBorder}` }}>
-            <div style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.barcode}</div>
+            <Copyable value={r.barcode} style={{ font: "500 11.5px 'JetBrains Mono'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
             <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted }}>{r.category || '—'}</div>
             <div style={{ font: "400 11.5px 'Inter'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.item || '—'}</div>
             <div style={{ font: "500 11px 'JetBrains Mono'", color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.ref_no || '—'}</div>
