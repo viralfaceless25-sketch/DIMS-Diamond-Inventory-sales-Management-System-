@@ -10,20 +10,6 @@ import { Copyable } from '@/components/ui';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
 
-const MOVEMENT_FILTERS = [
-  ['', 'All movements'],
-  ['requested', 'Requested'],
-  ['erp_transfer_issued', 'ERP BT issued'],
-  ['erp_receive_requested', 'ERP receipt requested'],
-  ['erp_transfer_received', 'ERP BT received'],
-  ['erp_transfer_rejected', 'ERP BT rejected'],
-  ['branch_transfer_sent', 'Transfer sent'],
-  ['branch_transfer_received', 'Transfer received'],
-  ['handed_to_rep', 'Handed to rep'],
-  ['shipped_to_customer', 'Shipped to customer'],
-  ['returned', 'Returned'],
-] as const;
-
 const STATUS_COLOR: Record<string, string> = {
   requested: 'oklch(55% 0.01 150)',
   partially_given: AMBER,
@@ -46,8 +32,12 @@ export default function TrackingPage() {
   const { user } = useAuth();
   // Inventory staff only ever track their own branch; the server enforces this.
   const [branch, setBranch] = useState(user?.branch || 'ALL');
-  const [search, setSearch] = useState('');
-  const [movement, setMovement] = useState('');
+  // Two dedicated fields instead of one ambiguous "rep, stock#, or cert#"
+  // box — the backend only takes a single search term, so whichever of the
+  // two is filled becomes that term (barcode wins if both are).
+  const [barcodeSearch, setBarcodeSearch] = useState('');
+  const [certSearch, setCertSearch] = useState('');
+  const search = barcodeSearch.trim() || certSearch.trim();
   const [rows, setRows] = useState<TrackingRow[]>([]);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [page, setPage] = useState(1);
@@ -57,7 +47,7 @@ export default function TrackingPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api.tracking(branch, search, page, movement);
+      const result = await api.tracking(branch, search, page);
       setRows(result.rows);
       setTotal(result.total);
     } catch (error) {
@@ -65,10 +55,10 @@ export default function TrackingPage() {
     } finally {
       setLoading(false);
     }
-  }, [branch, search, page, movement]);
+  }, [branch, search, page]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [branch, search, movement]);
+  useEffect(() => { setPage(1); }, [branch, search]);
   useEffect(() => {
     if (user?.branch && user.branch !== branch) setBranch(user.branch);
   }, [user?.branch, branch]);
@@ -78,19 +68,30 @@ export default function TrackingPage() {
 
   return (
     <>
-      <TopBar title="Stone movement history" branch={branch} onBranch={setBranch} lockBranch={user?.branch || undefined} search={search} onSearch={setSearch} t={t} />
+      <TopBar title="Stone movement history" branch={branch} onBranch={setBranch} lockBranch={user?.branch || undefined} t={t} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>
-          {MOVEMENT_FILTERS.map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setMovement(value)}
-              style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${movement === value ? ACCENT : t.border}`, background: movement === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: movement === value ? ACCENT : t.textMuted, font: "700 10.5px 'Inter'", cursor: 'pointer' }}
-            >
-              {label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 9, padding: '9px 12px', minWidth: 220, flex: '1 1 220px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
+            <input
+              value={barcodeSearch}
+              onChange={(event) => setBarcodeSearch(event.target.value)}
+              placeholder="Search by barcode"
+              autoComplete="off"
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: t.text, font: "500 12.5px 'Inter'" }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 9, padding: '9px 12px', minWidth: 220, flex: '1 1 220px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
+            <input
+              value={certSearch}
+              onChange={(event) => setCertSearch(event.target.value)}
+              placeholder="Search by certificate number"
+              autoComplete="off"
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: t.text, font: "500 12.5px 'Inter'" }}
+            />
+          </div>
         </div>
 
         <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
