@@ -30,6 +30,10 @@ interface CartItem {
   itemType: string;
   branch: string;
   source?: 'manual' | 'invoice_upload';
+  // Whether the snapshot has a certificate number for this piece. A stone
+  // with none has nothing for inventory to check off as "Cert found" — the
+  // request scope is restricted to Stone only in that case.
+  hasCert?: boolean;
 }
 
 type RequestScope = 'stone_and_cert' | 'stone_only' | 'cert_only';
@@ -85,6 +89,17 @@ export default function RequestStonesPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const homeBranch = cart[0]?.branch || null;
+  // A stone with no certificate on file has nothing for inventory to check
+  // off as "Cert found" — once the cart holds one, cert-inclusive scopes are
+  // hidden and the request is restricted to Stone only.
+  const cartHasCertlessItem = cart.some((item) => item.hasCert === false);
+  const requestForOptions = (
+    [
+      ['stone_and_cert', 'Stone + cert'],
+      ['stone_only', 'Stone only'],
+      ['cert_only', 'Cert only'],
+    ] as const
+  ).filter(([value]) => !cartHasCertlessItem || value === 'stone_only');
   const isCrossBranch = Boolean(homeBranch && homeBranch !== branch);
   const deliveryRoute = deliveryRouteForChoice(fulfillmentChoice);
   const deliveryWorkflow = hasDeliveryWorkflow(isCrossBranch, deliveryRoute);
@@ -166,6 +181,14 @@ export default function RequestStonesPage() {
     setDropoffCompany('');
     setDropoffAddress('');
   }, [homeBranch, branch]);
+  // If the cart picks up a certless stone while Stone + cert / Cert only was
+  // selected, snap the scope back to Stone only rather than let the rep
+  // submit a request for a certificate that doesn't exist.
+  useEffect(() => {
+    if (cartHasCertlessItem && requestScope !== 'stone_only') {
+      setRequestScope('stone_only');
+    }
+  }, [cartHasCertlessItem, requestScope]);
 
   const inCart = (barcode: string) => cart.some((c) => c.barcode === barcode);
 
@@ -249,7 +272,7 @@ export default function RequestStonesPage() {
     setCart((prev) =>
       prev.some((c) => c.barcode === s.barcode)
         ? prev.filter((c) => c.barcode !== s.barcode)
-        : [...prev, { barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: 'loose', branch: s.branch }]
+        : [...prev, { barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: 'loose', branch: s.branch, hasCert: Boolean(s.certificate_no) }]
     );
   }
 
@@ -321,8 +344,8 @@ export default function RequestStonesPage() {
           };
         }
         const item: CartItem = exactLoose
-          ? { barcode: exactLoose.barcode, shape: exactLoose.shape, carat: exactLoose.carat, color: exactLoose.color, clarity: exactLoose.clarity, itemType: 'loose', branch: exactLoose.branch }
-          : { barcode: exactJewelry!.barcode, shape: exactJewelry!.item || exactJewelry!.category || 'Jewelry', carat: exactJewelry!.diamond_cts ?? null, color: null, clarity: null, itemType: 'jewelry', branch: exactJewelry!.branch };
+          ? { barcode: exactLoose.barcode, shape: exactLoose.shape, carat: exactLoose.carat, color: exactLoose.color, clarity: exactLoose.clarity, itemType: 'loose', branch: exactLoose.branch, hasCert: Boolean(exactLoose.certificate_no) }
+          : { barcode: exactJewelry!.barcode, shape: exactJewelry!.item || exactJewelry!.category || 'Jewelry', carat: exactJewelry!.diamond_cts ?? null, color: null, clarity: null, itemType: 'jewelry', branch: exactJewelry!.branch, hasCert: Boolean(exactJewelry!.cert_no) };
         return { barcode, item };
       }));
 
@@ -431,7 +454,7 @@ export default function RequestStonesPage() {
       const existing = new Set(prev.map((c) => c.barcode));
       const additions = available
         .filter((s) => !existing.has(s.barcode))
-        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch, source: 'invoice_upload' as const }))
+        .map((s) => ({ barcode: s.barcode, shape: s.shape, carat: s.carat, color: s.color, clarity: s.clarity, itemType: s.item_type, branch: s.stockBranch || branch, source: 'invoice_upload' as const, hasCert: Boolean(s.certificate_no) }))
         .filter((item) => canAddToHomeBranch(prev[0]?.branch || null, item.branch));
       return [...prev, ...additions];
     });
@@ -780,16 +803,17 @@ export default function RequestStonesPage() {
           )}
           <div style={{ font: "600 10.5px 'Inter'", color: t.textFaint, marginBottom: 8 }}>REQUEST FOR</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 12 }}>
-            {[
-              ['stone_and_cert', 'Stone + cert'],
-              ['stone_only', 'Stone only'],
-              ['cert_only', 'Cert only'],
-            ].map(([value, label]) => (
+            {requestForOptions.map(([value, label]) => (
               <button key={value} onClick={() => setRequestScope(value as RequestScope)} style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 7, border: `1px solid ${requestScope === value ? ACCENT : t.borderLight}`, background: requestScope === value ? 'oklch(78% 0.13 240 / 0.14)' : t.bgCard, color: requestScope === value ? ACCENT : t.textMuted, font: "600 11px 'Inter'", cursor: 'pointer' }}>
                 {label}
               </button>
             ))}
           </div>
+          {cartHasCertlessItem && (
+            <div style={{ font: "500 10px 'Inter'", color: t.textFaint, margin: '-6px 0 12px' }}>
+              A stone in this request has no certificate on file, so only Stone can be requested.
+            </div>
+          )}
 
           {deliveryRoute === 'customer_dropoff' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 10 }}>

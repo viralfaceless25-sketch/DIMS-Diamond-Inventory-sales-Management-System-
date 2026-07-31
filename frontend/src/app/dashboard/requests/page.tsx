@@ -428,7 +428,12 @@ export default function RequestsPage() {
           <Pill active={view === 'completed'} onClick={() => setView('completed')} t={t}>Completed</Pill>
         </div>
 
-        {loading ? (
+        {loading && requests.length === 0 ? (
+          // Only the true first load (or a filter change that empties the
+          // list) shows the placeholder. A background refresh after a
+          // checkbox toggle keeps the existing rows mounted instead of
+          // unmounting the whole list, which was collapsing page height and
+          // snapping scroll back to the top on every check/uncheck.
           <Empty t={t}>Loading...</Empty>
         ) : requests.length === 0 ? (
           <Empty t={t}>{view === 'active' ? 'No active requests. New requests from sales reps appear here.' : 'No completed requests yet.'}</Empty>
