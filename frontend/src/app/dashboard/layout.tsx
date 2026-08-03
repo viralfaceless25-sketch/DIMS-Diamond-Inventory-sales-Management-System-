@@ -35,9 +35,11 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'auto' }}>
-      {/* Sidebar */}
-      <div style={{ width: 224, flex: 'none', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
+    <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
+      {/* Sidebar — scrolls on its own (overflowY + minHeight:0) so a tall
+          nav/rep-roster at higher zoom never drags the main panel along
+          with it or leaves blank space where the two got out of sync. */}
+      <div style={{ width: 224, flex: 'none', minHeight: 0, overflowY: 'auto', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 22px' }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 16px 'Inter'", color: '#0a0e0d' }}>D</div>
           <div style={{ font: "700 16.5px 'Inter'", color: t.text }}>Diamond ERP</div>

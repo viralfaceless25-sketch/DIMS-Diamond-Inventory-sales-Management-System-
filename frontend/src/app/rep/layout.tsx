@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useRequireRole, useAuth } from '@/lib/auth';
@@ -37,6 +38,20 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
   const [shapes, setShapes] = useState<string[]>([]);
   const [shapeOptions, setShapeOptions] = useState<string[]>(FALLBACK_SHAPES);
   const [shapePanelOpen, setShapePanelOpen] = useState(false);
+  const [shapePanelPos, setShapePanelPos] = useState<{ top: number; left: number } | null>(null);
+  const shapeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // The shape picker is portaled to <body> (below) so the sidebar's own
+  // scroll container (added for tall FILTER STOCK content at higher zoom)
+  // never clips its 500px-wide panel — position:fixed is computed from the
+  // trigger button instead of relying on a relatively-positioned ancestor.
+  function toggleShapePanel() {
+    if (!shapePanelOpen && shapeButtonRef.current) {
+      const rect = shapeButtonRef.current.getBoundingClientRect();
+      setShapePanelPos({ top: rect.bottom + 8, left: rect.left });
+    }
+    setShapePanelOpen((open) => !open);
+  }
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
 
   const t = THEMES[name];
@@ -57,9 +72,12 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
       <CartContext.Provider value={{ count: cartCount, setCount: setCartCount }}>
         <StockFilterContext.Provider value={{ colors, setColors, clarities, setClarities, shapes, setShapes, shapeOptions }}>
         <QuickSearchContext.Provider value={{ term: quickSearchTerm, setTerm: setQuickSearchTerm }}>
-        <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'auto' }}>
-          {/* Sidebar */}
-          <div style={{ width: 224, flex: 'none', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
+        <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
+          {/* Sidebar itself stays overflow:visible (so the mini-search and
+              shape-picker popovers are never clipped) — only the nav/filter
+              region below scrolls internally when it's taller than the
+              viewport at higher zoom. */}
+          <div style={{ width: 224, flex: 'none', display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 18px' }}>
               <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 16px 'Inter'", color: '#0a0e0d' }}>D</div>
               <div style={{ font: "700 16.5px 'Inter'", color: t.text }}>Diamond ERP</div>
@@ -79,43 +97,52 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
             {/* Mini diamond search — quick stock lookup from any rep page */}
             <MiniDiamondSearch t={t} />
 
-            {NAV.map((item) => {
-              const active = pathname === item.href;
-              const fg = active ? ACCENT : t.textFaint;
-              const showBadge = item.href === '/rep/request-stones' && cartCount > 0;
-              return (
-                <Link key={item.href} href={item.href} style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, marginBottom: 3, background: active ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={fg} strokeWidth="1.8"><path d={item.icon} /></svg>
-                  <span style={{ font: "600 15px 'Inter'", color: fg }}>{item.label}</span>
-                  {showBadge && <span style={{ marginLeft: 'auto', font: "700 12.5px 'JetBrains Mono'", background: 'oklch(75% 0.14 80)', color: '#0a0e0d', padding: '1px 7px', borderRadius: 9 }}>{cartCount}</span>}
-                </Link>
-              );
-            })}
+            {/* Scrolls independently of the header above and the pinned
+                footer below, so a long nav + FILTER STOCK panel at higher
+                zoom never grows the sidebar taller than the viewport. */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              {NAV.map((item) => {
+                const active = pathname === item.href;
+                const fg = active ? ACCENT : t.textFaint;
+                const showBadge = item.href === '/rep/request-stones' && cartCount > 0;
+                return (
+                  <Link key={item.href} href={item.href} style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, marginBottom: 3, background: active ? 'oklch(78% 0.13 240 / 0.14)' : 'transparent' }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={fg} strokeWidth="1.8"><path d={item.icon} /></svg>
+                    <span style={{ font: "600 15px 'Inter'", color: fg }}>{item.label}</span>
+                    {showBadge && <span style={{ marginLeft: 'auto', font: "700 12.5px 'JetBrains Mono'", background: 'oklch(75% 0.14 80)', color: '#0a0e0d', padding: '1px 7px', borderRadius: 9 }}>{cartCount}</span>}
+                  </Link>
+                );
+              })}
 
-            {pathname === '/rep/request-stones' && (
-              <div style={{ position: 'relative', margin: '12px 4px 0', paddingTop: 12, borderTop: `1px solid ${t.border}` }}>
-                <div style={{ font: "700 12px 'Inter'", color: t.textFaint, letterSpacing: '0.05em', margin: '0 6px 9px' }}>FILTER STOCK</div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Color</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
-                    {COLOR_ORDER.map((value) => <button key={value} onClick={() => toggleValue(colors, setColors, value)} style={{ border: `1px solid ${colors.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : 'transparent'}`, borderRadius: 5, padding: '5px 2px', cursor: 'pointer', background: colors.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: colors.includes(value) ? ACCENT : t.textMuted, font: "700 12px Arial, sans-serif" }}>{value}</button>)}
+              {pathname === '/rep/request-stones' && (
+                <div style={{ margin: '12px 4px 0', paddingTop: 12, borderTop: `1px solid ${t.border}` }}>
+                  <div style={{ font: "700 12px 'Inter'", color: t.textFaint, letterSpacing: '0.05em', margin: '0 6px 9px' }}>FILTER STOCK</div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Color</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                      {COLOR_ORDER.map((value) => <button key={value} onClick={() => toggleValue(colors, setColors, value)} style={{ border: `1px solid ${colors.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : 'transparent'}`, borderRadius: 5, padding: '5px 2px', cursor: 'pointer', background: colors.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: colors.includes(value) ? ACCENT : t.textMuted, font: "700 12px Arial, sans-serif" }}>{value}</button>)}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Clarity</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
+                      {CLARITY_ORDER.map((value) => <button key={value} onClick={() => toggleValue(clarities, setClarities, value)} style={{ border: `1px solid ${clarities.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : 'transparent'}`, borderRadius: 5, padding: '5px 2px', cursor: 'pointer', background: clarities.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: clarities.includes(value) ? ACCENT : t.textMuted, font: "700 12px Arial, sans-serif" }}>{value}</button>)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Shape</div>
+                    <button ref={shapeButtonRef} onClick={toggleShapePanel} style={{ width: '100%', border: `1px solid ${shapes.length ? 'oklch(78% 0.13 240 / 0.35)' : t.border}`, borderRadius: 6, padding: '7px 8px', cursor: 'pointer', background: shapes.length ? 'oklch(78% 0.13 240 / 0.12)' : t.bgCard, color: shapes.length ? ACCENT : t.textMuted, textAlign: 'left', font: "700 12.5px 'Inter'" }}>{shapes.length ? `${shapes.length} shape${shapes.length === 1 ? '' : 's'} selected` : 'Choose shapes'}</button>
                   </div>
                 </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Clarity</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
-                    {CLARITY_ORDER.map((value) => <button key={value} onClick={() => toggleValue(clarities, setClarities, value)} style={{ border: `1px solid ${clarities.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : 'transparent'}`, borderRadius: 5, padding: '5px 2px', cursor: 'pointer', background: clarities.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: clarities.includes(value) ? ACCENT : t.textMuted, font: "700 12px Arial, sans-serif" }}>{value}</button>)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ font: "700 12.5px 'Inter'", color: t.textFaint, margin: '0 6px 5px' }}>Shape</div>
-                  <button onClick={() => setShapePanelOpen((open) => !open)} style={{ width: '100%', border: `1px solid ${shapes.length ? 'oklch(78% 0.13 240 / 0.35)' : t.border}`, borderRadius: 6, padding: '7px 8px', cursor: 'pointer', background: shapes.length ? 'oklch(78% 0.13 240 / 0.12)' : t.bgCard, color: shapes.length ? ACCENT : t.textMuted, textAlign: 'left', font: "700 12.5px 'Inter'" }}>{shapes.length ? `${shapes.length} shape${shapes.length === 1 ? '' : 's'} selected` : 'Choose shapes'}</button>
-                  {shapePanelOpen && <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, width: 500, marginTop: 8, padding: 12, border: `1px solid ${t.border}`, borderRadius: 8, background: t.bgCard, boxShadow: '0 12px 30px rgb(0 0 0 / 0.18)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 9 }}><span style={{ font: "700 13px 'Inter'", color: t.text }}>Shapes</span><button onClick={() => setShapes([])} style={{ border: 'none', background: 'transparent', color: t.textFaint, font: "600 12px 'Inter'", cursor: 'pointer' }}>Clear</button></div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5 }}>{shapeOptions.map((value) => <button key={value} onClick={() => toggleValue(shapes, setShapes, value)} style={{ border: `1px solid ${shapes.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : t.border}`, borderRadius: 5, padding: '6px 5px', minHeight: 30, cursor: 'pointer', background: shapes.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: shapes.includes(value) ? ACCENT : t.textMuted, font: "600 11.5px Arial, sans-serif", lineHeight: 1.1 }}>{value}</button>)}</div>
-                  </div>}
-                </div>
-              </div>
+              )}
+            </div>
+
+            {shapePanelOpen && shapePanelPos && typeof document !== 'undefined' && createPortal(
+              <div style={{ position: 'fixed', zIndex: 50, top: shapePanelPos.top, left: shapePanelPos.left, width: 500, padding: 12, border: `1px solid ${t.border}`, borderRadius: 8, background: t.bgCard, boxShadow: '0 12px 30px rgb(0 0 0 / 0.18)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 9 }}><span style={{ font: "700 13px 'Inter'", color: t.text }}>Shapes</span><button onClick={() => setShapes([])} style={{ border: 'none', background: 'transparent', color: t.textFaint, font: "600 12px 'Inter'", cursor: 'pointer' }}>Clear</button></div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5 }}>{shapeOptions.map((value) => <button key={value} onClick={() => toggleValue(shapes, setShapes, value)} style={{ border: `1px solid ${shapes.includes(value) ? 'oklch(78% 0.13 240 / 0.35)' : t.border}`, borderRadius: 5, padding: '6px 5px', minHeight: 30, cursor: 'pointer', background: shapes.includes(value) ? 'oklch(78% 0.13 240 / 0.16)' : t.chipBg, color: shapes.includes(value) ? ACCENT : t.textMuted, font: "600 11.5px Arial, sans-serif", lineHeight: 1.1 }}>{value}</button>)}</div>
+              </div>,
+              document.body
             )}
 
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
