@@ -129,7 +129,12 @@ export default function RequestStonesPage() {
           colors: colorFilter,
           clarities: clarityFilter,
           shapes: shapeFilter,
-          requestableOnly: false,
+          // Stones already held by another rep's open request can't be
+          // requested anyway — leaving them out of the pick list (rather than
+          // showing a "Requested · <old rep>" row) keeps the list to what's
+          // actually choosable, with truly free stones sorted first.
+          requestableOnly: true,
+          sort: 'pick',
         }),
         api.myStockRechecks(),
       ]);

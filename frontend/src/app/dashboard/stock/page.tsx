@@ -66,6 +66,14 @@ export default function StockPage() {
       clarities: itemType === 'loose' ? clarities : [],
       statuses,
       certStatuses,
+      // A stone already attached to an open (non-cancelled, non-returned)
+      // request is unavailable to pick from here — showing it mixed into
+      // the browse list just clutters it with stale "Requested · <rep>"
+      // rows from old, still-open requests after a fresh stock upload. The
+      // request/tracking history itself is untouched; this only affects
+      // what shows up in this pick list.
+      requestableOnly: true,
+      sort: itemType === 'loose' ? ('pick' as const) : undefined,
     };
     if (itemType === 'loose') {
       const res = await api.looseStock(q);

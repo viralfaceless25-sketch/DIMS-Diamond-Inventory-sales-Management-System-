@@ -473,6 +473,7 @@ export default function RequestsPage() {
                                 </div>
                                 <div style={{ font: "500 13.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
                                   {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}` : requestScopeLabel(r.requestScope)}
+                                  {r.requestType === 'dropoff' && r.dropoffCompany ? ` — drop off to ${r.dropoffCompany} (tap note icon for address)` : ''}
                                 </div>
                               </div>
                               <div style={{ font: "600 14px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>

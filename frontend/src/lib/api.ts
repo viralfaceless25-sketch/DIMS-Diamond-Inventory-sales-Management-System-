@@ -270,6 +270,11 @@ export interface StockQuery {
   // neither means no filter, same semantics as statuses above).
   certStatuses?: string[];
   requestableOnly?: boolean;
+  // 'pick' — loose stones only: available (no ERP hold/memo/transit) sorts
+  // before on_hold/on_memo/in_transit, then shape -> carat -> color ->
+  // clarity ascending. Omit for the default color-first LOOSE_ORDER that
+  // paperwork/sortingService rely on.
+  sort?: 'pick';
 }
 
 function stockParams(q: StockQuery): string {
@@ -295,6 +300,7 @@ function stockParams(q: StockQuery): string {
   if (q.statuses && q.statuses.length) p.set('statuses', q.statuses.join(','));
   if (q.certStatuses && q.certStatuses.length) p.set('certStatuses', q.certStatuses.join(','));
   if (q.requestableOnly) p.set('requestableOnly', 'true');
+  if (q.sort) p.set('sort', q.sort);
   return p.toString();
 }
 

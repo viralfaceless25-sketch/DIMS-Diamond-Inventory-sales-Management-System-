@@ -62,6 +62,18 @@ function rankCase(column, values) {
 }
 const LOOSE_ORDER = `ORDER BY ${rankCase('color', COLOR_RANK)}, ${rankCase('clarity', CLARITY_RANK)}, shape NULLS LAST, carat NULLS LAST`;
 
+// Stone-picking order for the "browse to request" grids (?sort=pick): a
+// stone with no ERP encumbrance (available) sorts before on_hold/on_memo/
+// in_transit stock, then shape -> carat -> color -> clarity ascending —
+// distinct from LOOSE_ORDER above, which sortingService/paperwork rely on
+// and must stay color-first.
+const PICK_ORDER = `ORDER BY
+  CASE WHEN coalesce(stock_status, 'available') = 'available' THEN 0 ELSE 1 END,
+  shape NULLS LAST,
+  carat NULLS LAST,
+  ${rankCase('color', COLOR_RANK)},
+  ${rankCase('clarity', CLARITY_RANK)}`;
+
 function clampPage(q) {
   const page = Math.max(1, parseInt(q.page, 10) || 1);
   const pageSize = Math.min(200, Math.max(1, parseInt(q.pageSize, 10) || 50));
@@ -235,9 +247,10 @@ router.get('/loose', async (req, res, next) => {
     const totalRes = await pool.query(`SELECT count(*)::int AS total FROM loose_diamonds ${where}`, params);
     const total = totalRes.rows[0].total;
 
+    const orderBy = req.query.sort === 'pick' ? PICK_ORDER : LOOSE_ORDER;
     const pageParams = [...params, pageSize, offset];
     const { rows } = await pool.query(
-      `SELECT * FROM loose_diamonds ${where} ${LOOSE_ORDER}
+      `SELECT * FROM loose_diamonds ${where} ${orderBy}
        LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
       pageParams
     );
