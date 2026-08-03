@@ -194,7 +194,11 @@ export default function MyRequestsPage() {
                 request.crossBranch,
                 request.deliveryRoute
               );
-              const customerShipment = request.deliveryRoute === 'customer_ship';
+              // A local (same-branch) ship-to-customer request skips the
+              // invoice/label document workflow entirely — inventory hands
+              // it straight to the rep once packed, so there's nothing to
+              // upload here for it.
+              const customerShipment = request.deliveryRoute === 'customer_ship' && Boolean(request.crossBranch);
               const strictDocuments = Number(request.workflowVersion || 1) >= 2;
               const documentState = documentStepState({
                 workflowVersion: request.workflowVersion,

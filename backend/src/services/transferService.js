@@ -11,6 +11,15 @@ const CUSTOMER_SHIP_STEPS = {
   packed: { ship_customer: 'shipped_to_customer' },
 };
 
+// A "ship to customer" request where the stone's home branch and the rep's
+// branch are the same office has no real shipment to document — inventory
+// packs it and hands it straight to the rep standing there, same as an
+// internal-transfer final handoff. No invoice/label upload gate applies.
+const LOCAL_CUSTOMER_SHIP_STEPS = {
+  awaiting_source: { pack: 'packed' },
+  packed: { hand_to_rep: 'handed_to_rep' },
+};
+
 const CUSTOMER_DROPOFF_STEPS = {
   awaiting_source: { pack: 'packed' },
   packed: { dropoff_customer: 'dropped_off_to_customer' },
@@ -35,6 +44,7 @@ function getTransferAction({
   destinationBranch,
   actorBranch,
   action,
+  crossBranch = true,
   hasLabel = false,
   hasPaperwork = false,
   paperworkType = 'none',
@@ -55,7 +65,7 @@ function getTransferAction({
     throw new Error('Complete the ERP branch transfer before packing this request');
   }
   const steps = route === 'internal_transfer' ? INTERNAL_STEPS
-    : route === 'customer_ship' ? CUSTOMER_SHIP_STEPS
+    : route === 'customer_ship' ? (crossBranch ? CUSTOMER_SHIP_STEPS : LOCAL_CUSTOMER_SHIP_STEPS)
       : route === 'customer_dropoff' ? CUSTOMER_DROPOFF_STEPS : null;
   if (!steps || !steps[status] || !steps[status][action]) {
     throw new Error(`This transfer action is not allowed while the request is ${status}`);

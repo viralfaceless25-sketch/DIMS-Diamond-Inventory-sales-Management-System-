@@ -111,7 +111,8 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
       const nextStatus = getTransferAction({
         route: transfer.delivery_route, status: transfer.transfer_status || 'awaiting_source',
         sourceBranch: transfer.fulfillment_branch, destinationBranch: transfer.destination_branch,
-        actorBranch, action, hasLabel: transfer.has_label, hasPaperwork: transfer.has_paperwork,
+        actorBranch, action, crossBranch: transfer.cross_branch,
+        hasLabel: transfer.has_label, hasPaperwork: transfer.has_paperwork,
         paperworkType: transfer.paperwork_type, workflowVersion: transfer.workflow_version,
         requiresErpTransfer: transfer.cross_branch,
         erpTransferConfirmed: transfer.erp_transfer_confirmed,

@@ -69,6 +69,23 @@ test('direct customer shipment requires the supplying branch and a label', () =>
   assert.equal(getTransferAction({ route: 'customer_ship', status: 'packed', sourceBranch: 'LA', destinationBranch: 'NY', actorBranch: 'LA', action: 'ship_customer', hasLabel: true, paperworkType: 'invoice' }), 'shipped_to_customer');
 });
 
+test('a local (same-branch) customer shipment skips paperwork/label straight to hand_to_rep', () => {
+  // Rep and stone share a branch — there's no real shipment to document, so
+  // packed -> hand_to_rep closes it directly, no invoice/label required and
+  // no ship_customer action available at all.
+  assert.equal(getTransferAction({
+    route: 'customer_ship', status: 'packed', sourceBranch: 'NY', destinationBranch: 'NY',
+    actorBranch: 'NY', action: 'hand_to_rep', crossBranch: false,
+  }), 'handed_to_rep');
+  assert.throws(
+    () => getTransferAction({
+      route: 'customer_ship', status: 'packed', sourceBranch: 'NY', destinationBranch: 'NY',
+      actorBranch: 'NY', action: 'ship_customer', crossBranch: false, hasLabel: false,
+    }),
+    /not allowed/
+  );
+});
+
 test('version-2 customer shipment requires ERP receipt and both real files', () => {
   const ready = {
     route: 'customer_ship',

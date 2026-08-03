@@ -178,7 +178,7 @@ export default function RequestsPage() {
     return 'oklch(74% 0.13 205)';
   }
 
-  async function updateTransfer(requestId: number, action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer') {
+  async function updateTransfer(requestId: number, action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer' | 'hand_to_rep') {
     try { await api.setTransferStatus(requestId, action); await load(); }
     catch (err) { window.alert(err instanceof Error ? err.message : 'Could not update this transfer.'); }
   }
@@ -273,15 +273,23 @@ export default function RequestsPage() {
     });
   }
 
-  function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer'; label: string } | null {
+  function transferNext(r: RequestSummary, itemsConfirmed = false): { action: 'pack' | 'ship' | 'ship_customer' | 'dropoff_customer' | 'hand_to_rep'; label: string } | null {
     if (r.status === 'cancelled' || r.status === 'fulfilled') return null;
     if (!hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute)) return null;
     const status = r.transferStatus || 'awaiting_source';
     const isSource = user?.branch === r.fulfillmentBranch;
     if (status === 'awaiting_source' && isSource && (!r.crossBranch || r.erpTransferConfirmed)) return { action: 'pack', label: 'Mark packed' };
     if (status === 'packed' && r.deliveryRoute === 'internal_transfer' && isSource) return { action: 'ship', label: `Ship to ${r.deliveryBranch}` };
+    // A local (same-branch) ship-to-customer request has no real shipment to
+    // document — inventory hands it straight to the rep, same as an
+    // internal-transfer final handoff, skipping the invoice/label steps
+    // that only make sense for an actual cross-branch shipment.
+    if (status === 'packed' && r.deliveryRoute === 'customer_ship' && !r.crossBranch && itemsConfirmed && r.resolutionConfirmed && isSource) {
+      return { action: 'hand_to_rep', label: 'Give to rep' };
+    }
     if (status === 'packed'
         && r.deliveryRoute === 'customer_ship'
+        && r.crossBranch
         && itemsConfirmed
         && r.resolutionConfirmed
         && isSource
@@ -484,8 +492,8 @@ export default function RequestsPage() {
                               </div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
                                 <StatusBadge status={r.status} />
-                                {r.deliveryRoute === 'customer_ship' && !documents.paperworkComplete && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
-                                {r.deliveryRoute === 'customer_ship' && !r.hasLabel && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
+                                {r.deliveryRoute === 'customer_ship' && r.crossBranch && !documents.paperworkComplete && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING PAPERWORK</span>}
+                                {r.deliveryRoute === 'customer_ship' && r.crossBranch && !r.hasLabel && <span style={{ font: "800 11.5px 'Inter'", color: AMBER, whiteSpace: 'nowrap' }}>PENDING LABEL</span>}
                                 {r.hasDuplicate && <DuplicateBadge reps={[]} />}
                               </div>
                             </div>
@@ -533,7 +541,7 @@ export default function RequestsPage() {
                                       </div>
                                     )}
 
-                                    {r.deliveryRoute === 'customer_ship' && (
+                                    {r.deliveryRoute === 'customer_ship' && r.crossBranch && (
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                         <span style={{ font: "800 12px 'Inter'", color: documents.paperworkComplete ? ACCENT : AMBER }}>Step 1 paperwork: {documents.paperworkComplete ? r.paperworkType : 'pending'}</span>
                                         {r.hasPaperwork && <button onClick={() => openPaperwork(r.id)} style={{ padding: '6px 9px', borderRadius: 6, border: `1px solid ${t.border}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "800 12px 'Inter'" }}>Open paperwork</button>}
