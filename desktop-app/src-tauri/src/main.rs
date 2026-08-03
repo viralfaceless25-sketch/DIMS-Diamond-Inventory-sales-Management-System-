@@ -15,6 +15,10 @@ fn main() {
             .title("Diamond Inventory")
             .inner_size(1440.0, 900.0)
             .min_inner_size(1024.0, 700.0)
+            // Tauri v2 defaults this to false — without it, Ctrl+=/Ctrl+-/
+            // Ctrl+scroll do nothing in the installed app even though the
+            // hosted page itself has no zoom-blocking code.
+            .zoom_hotkeys_enabled(true)
             .on_navigation(config::is_allowed_navigation)
             .on_new_window(|url, _features| {
                 if config::is_allowed_popup(&url) {

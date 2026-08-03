@@ -35,7 +35,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'auto' }}>
       {/* Sidebar */}
       <div style={{ width: 224, flex: 'none', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 22px' }}>
