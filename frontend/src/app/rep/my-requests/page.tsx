@@ -7,7 +7,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '../repContext';
 import { ACCENT, AMBER, GREEN, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat, sortStonesClient, STATUS_LABELS } from '@/lib/utils';
-import { Check, Copyable } from '@/components/ui';
+import { Check, Copyable, DropoffNote } from '@/components/ui';
 import {
   documentStepState,
   hasDeliveryWorkflow,
@@ -221,7 +221,12 @@ export default function MyRequestsPage() {
                     style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 120px 34px', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "600 15px 'Inter'", color: t.text }}>Request #{request.id}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ font: "600 15px 'Inter'", color: t.text }}>Request #{request.id}</div>
+                        {request.requestType === 'dropoff' && (
+                          <DropoffNote company={request.dropoffCompany} address={request.dropoffAddress} />
+                        )}
+                      </div>
                       {(pendingPaperwork || pendingLabel) && request.status !== 'cancelled' && (
                         <div style={{ display: 'flex', gap: 7, marginTop: 4, flexWrap: 'wrap' }}>
                           {pendingPaperwork && <span style={{ font: "800 11.5px 'Inter'", color: AMBER }}>STEP 1 PAPERWORK</span>}

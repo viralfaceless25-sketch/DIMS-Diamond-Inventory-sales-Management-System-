@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ACCENT, AMBER, GREEN, RED, BLUE } from '@/lib/theme';
 import { STATUS_LABELS } from '@/lib/utils';
 
@@ -142,6 +142,85 @@ export function NonCertBadge() {
     >
       NON-CERT
     </span>
+  );
+}
+
+// Small sticky-note icon that expands into a yellow note popup on click —
+// for details that matter to one request but would clutter the row if shown
+// inline (drop-off company/address today; any per-request note tomorrow).
+// Click-outside and the icon itself both close it; renders nothing when
+// every line is empty so it never appears on requests with nothing to show.
+export function StickyNote({
+  label = 'Note',
+  lines,
+}: {
+  label?: string;
+  lines: { heading?: string; value: string | null }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDown(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  const visibleLines = lines.filter((line) => line.value);
+  if (visibleLines.length === 0) return null;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}>
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); setOpen((v) => !v); }}
+        title={label}
+        aria-label={label}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, border: 'none', background: 'none', cursor: 'pointer', color: AMBER, opacity: open ? 1 : 0.75 }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M4 4h13l3 3v13H4V4z" />
+          <path d="M17 4v6h6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          onClick={(event) => event.stopPropagation()}
+          style={{
+            position: 'absolute', zIndex: 50, top: '100%', left: 0, marginTop: 6,
+            minWidth: 220, maxWidth: 280, padding: '12px 14px',
+            background: '#fff6c6', color: '#3a3320',
+            border: '1px solid #e2d27a', borderRadius: 4,
+            boxShadow: '0 10px 26px rgb(0 0 0 / 0.28)',
+            transform: 'rotate(-0.6deg)',
+          }}
+        >
+          {visibleLines.map((line, i) => (
+            <div key={i} style={{ marginBottom: i === visibleLines.length - 1 ? 0 : 8 }}>
+              {line.heading && <div style={{ font: "700 10.5px 'Inter'", letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.65, marginBottom: 2 }}>{line.heading}</div>}
+              <div style={{ font: "600 13px 'Inter'", whiteSpace: 'pre-wrap' }}>{line.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Drop-off request company/address — the details inventory and the rep both
+// need to hand-carry a stone to the right customer, tucked behind a
+// sticky-note icon so it doesn't compete for space with the request row.
+export function DropoffNote({ company, address }: { company: string | null | undefined; address: string | null | undefined }) {
+  return (
+    <StickyNote
+      label="Drop-off details"
+      lines={[
+        { heading: 'Company', value: company || null },
+        { heading: 'Address', value: address || null },
+      ]}
+    />
   );
 }
 

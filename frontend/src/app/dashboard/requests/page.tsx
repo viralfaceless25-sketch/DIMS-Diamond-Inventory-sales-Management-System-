@@ -6,7 +6,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useAuth } from '@/lib/auth';
 import { TopBar } from '@/components/TopBar';
-import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable, NonCertBadge } from '@/components/ui';
+import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable, NonCertBadge, DropoffNote } from '@/components/ui';
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
 import {
@@ -341,6 +341,7 @@ export default function RequestsPage() {
       fulfillmentBranch: r.fulfillmentBranch,
       deliveryRoute: r.deliveryRoute,
       transferStatus: r.transferStatus,
+      crossBranch: r.crossBranch,
     }, user?.branch);
   }
 
@@ -468,9 +469,10 @@ export default function RequestsPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                                   <div style={{ font: "800 17px 'Inter'", color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.rep.name} <span style={{ color: t.textFaint, fontSize: 12 }}>Request #{r.id}</span></div>
                                   <RequestTypeBadge label={requestTypeLabel(r.requestType)} styleInfo={requestTypeStyle(r.requestType)} />
+                                  {r.requestType === 'dropoff' && <DropoffNote company={r.dropoffCompany} address={r.dropoffAddress} />}
                                 </div>
                                 <div style={{ font: "500 13.5px 'Inter'", color: t.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }}>
-                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}` : requestScopeLabel(r.requestScope)}{r.requestType === 'dropoff' && r.dropoffCompany ? ` - ${r.dropoffCompany}` : ''}
+                                  {hasDeliveryWorkflow(r.crossBranch, r.deliveryRoute) ? `${r.crossBranch ? 'Cross branch' : 'Local delivery'}: ${r.fulfillmentBranch} -> ${r.deliveryBranch} - ${(r.transferStatus || 'awaiting_source').replaceAll('_', ' ')}` : requestScopeLabel(r.requestScope)}
                                 </div>
                               </div>
                               <div style={{ font: "600 14px Arial, sans-serif", color: t.textMuted }}>{r.crossBranch ? r.deliveryBranch : r.branch}</div>

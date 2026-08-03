@@ -31,6 +31,25 @@ test('only the supplying branch resolves internal-transfer items before shipment
   }, 'NY'), false);
 });
 
+test('a local drop-off/ship request resolves stones without waiting on "packed" first', () => {
+  // Local customer_dropoff/customer_ship still walk the pack -> deliver state
+  // machine (hasDeliveryWorkflow stays true), but the stone never leaves the
+  // branch, so requiring "packed" before checking off stones/certs is a
+  // pointless extra click that made a correct local request look stuck.
+  const localDropoff = {
+    status: 'awaiting' as const,
+    fulfillmentBranch: 'NY',
+    deliveryRoute: 'customer_dropoff' as const,
+    transferStatus: 'awaiting_source',
+    crossBranch: false,
+  };
+  assert.equal(canResolveSourceItems(localDropoff, 'NY'), true);
+
+  const crossBranchDropoff = { ...localDropoff, crossBranch: true };
+  assert.equal(canResolveSourceItems(crossBranchDropoff, 'NY'), false);
+  assert.equal(canResolveSourceItems({ ...crossBranchDropoff, transferStatus: 'packed' }, 'NY'), true);
+});
+
 test('in-transit availability is explicit and requestable', () => {
   assert.equal(
     availabilityText({ status: 'in_transit', label: 'In Transit' }),

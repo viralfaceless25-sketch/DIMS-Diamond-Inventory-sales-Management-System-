@@ -151,11 +151,21 @@ export function canResolveSourceItems(
     fulfillmentBranch: string;
     deliveryRoute: DeliveryRoute | null;
     transferStatus: string | null;
+    crossBranch?: boolean;
   },
   actorBranch: string | null | undefined
 ) {
   if (!actorBranch || ['cancelled', 'fulfilled'].includes(request.status)) return false;
   if (actorBranch !== request.fulfillmentBranch) return false;
+  // A local customer_ship/customer_dropoff request still walks the pack ->
+  // deliver state machine (see hasDeliveryWorkflow), but unlike a real
+  // cross-branch shipment there's no box being packed for transit — the
+  // stone never leaves the branch. Requiring "packed" before inventory can
+  // even check off stones/certs on a *local* request forces a pointless
+  // extra click and reads as the request being stuck. Only cross-branch
+  // requests need the packed gate; the backend (assertInventoryRequestMutation)
+  // already only enforces it for cross_branch requests.
+  if (request.crossBranch === false) return true;
   const transferStatus = request.transferStatus || 'awaiting_source';
   if (request.deliveryRoute === 'internal_transfer') {
     return ['awaiting_source', 'packed'].includes(transferStatus);
