@@ -32,6 +32,35 @@ export function selectReceiptCandidate<T extends { requestId: number }>(
   return candidates.find((candidate) => String(candidate.requestId) === choice) || null;
 }
 
+export async function linkSelectedReceiptCandidate<T extends {
+  requestId: number;
+  requestStoneId: number;
+}>({
+  candidates,
+  choice,
+  link,
+  isDuplicateError,
+  confirmDuplicate,
+}: {
+  candidates: T[];
+  choice: string | null;
+  link: (requestStoneId: number, duplicateOverride?: boolean) => Promise<unknown>;
+  isDuplicateError: (error: unknown) => boolean;
+  confirmDuplicate: (error: unknown) => boolean;
+}): Promise<{ status: 'not_selected' } | { status: 'linked'; candidate: T }> {
+  const candidate = selectReceiptCandidate(candidates, choice);
+  if (!candidate) return { status: 'not_selected' };
+
+  try {
+    await link(candidate.requestStoneId);
+  } catch (error) {
+    if (!isDuplicateError(error) || !confirmDuplicate(error)) throw error;
+    await link(candidate.requestStoneId, true);
+  }
+
+  return { status: 'linked', candidate };
+}
+
 export function receiptFormReady(form: ReceiptFormState) {
   const barcode = form.barcode.trim();
   const explicitComponents =

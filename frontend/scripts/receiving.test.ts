@@ -8,6 +8,7 @@ import {
   defaultCandidateId,
   defaultComponents,
   elsewhereMessage,
+  linkSelectedReceiptCandidate,
   receiptFormReady,
   selectReceiptCandidate,
   shiftIsoDate,
@@ -41,6 +42,117 @@ test('receipt candidate selection never falls back after a cancelled or mistyped
   assert.equal(selectReceiptCandidate(candidates, '99'), null);
   assert.deepEqual(selectReceiptCandidate(candidates, '14'), candidates[1]);
   assert.deepEqual(selectReceiptCandidate([candidates[0]], null), candidates[0]);
+});
+
+const receiptCandidates = [
+  { requestId: 12, requestStoneId: 101 },
+  { requestId: 14, requestStoneId: 102 },
+];
+
+test('receipt linking leaves cancelled, blank, whitespace, non-numeric, and non-matching choices untouched', async () => {
+  for (const choice of [null, '', ' ', 'abc', '99']) {
+    const linkCalls: Array<{ requestStoneId: number; duplicateOverride?: boolean }> = [];
+    const outcome = await linkSelectedReceiptCandidate({
+      candidates: receiptCandidates,
+      choice,
+      link: async (requestStoneId, duplicateOverride) => { linkCalls.push({ requestStoneId, duplicateOverride }); },
+      isDuplicateError: () => false,
+      confirmDuplicate: () => { throw new Error('should not confirm'); },
+    });
+
+    assert.deepEqual(outcome, { status: 'not_selected' });
+    assert.deepEqual(linkCalls, []);
+  }
+});
+
+test('receipt linking uses the exact multi-candidate request selected by inventory', async () => {
+  const linkCalls: Array<{ requestStoneId: number; duplicateOverride?: boolean }> = [];
+  const outcome = await linkSelectedReceiptCandidate({
+    candidates: receiptCandidates,
+    choice: '14',
+    link: async (requestStoneId, duplicateOverride) => { linkCalls.push({ requestStoneId, duplicateOverride }); },
+    isDuplicateError: () => false,
+    confirmDuplicate: () => false,
+  });
+
+  assert.deepEqual(outcome, { status: 'linked', candidate: receiptCandidates[1] });
+  assert.deepEqual(linkCalls, [{ requestStoneId: 102, duplicateOverride: undefined }]);
+});
+
+test('receipt linking retries a confirmed duplicate exactly once on the selected request', async () => {
+  const duplicate = Object.assign(new Error('Already linked'), { status: 409 });
+  const linkCalls: Array<{ requestStoneId: number; duplicateOverride?: boolean }> = [];
+  let confirmations = 0;
+  const outcome = await linkSelectedReceiptCandidate({
+    candidates: receiptCandidates,
+    choice: '14',
+    link: async (requestStoneId, duplicateOverride) => {
+      linkCalls.push({ requestStoneId, duplicateOverride });
+      if (linkCalls.length === 1) throw duplicate;
+    },
+    isDuplicateError: (error) => (error as { status?: number }).status === 409,
+    confirmDuplicate: (error) => {
+      confirmations += 1;
+      assert.equal(error, duplicate);
+      return true;
+    },
+  });
+
+  assert.deepEqual(outcome, { status: 'linked', candidate: receiptCandidates[1] });
+  assert.equal(confirmations, 1);
+  assert.deepEqual(linkCalls, [
+    { requestStoneId: 102, duplicateOverride: undefined },
+    { requestStoneId: 102, duplicateOverride: true },
+  ]);
+});
+
+test('receipt linking does not retry when inventory declines a duplicate override', async () => {
+  const duplicate = Object.assign(new Error('Already linked'), { status: 409 });
+  const linkCalls: Array<{ requestStoneId: number; duplicateOverride?: boolean }> = [];
+  await assert.rejects(
+    linkSelectedReceiptCandidate({
+      candidates: receiptCandidates,
+      choice: '14',
+      link: async (requestStoneId, duplicateOverride) => {
+        linkCalls.push({ requestStoneId, duplicateOverride });
+        throw duplicate;
+      },
+      isDuplicateError: (error) => (error as { status?: number }).status === 409,
+      confirmDuplicate: () => false,
+    }),
+    duplicate
+  );
+  assert.deepEqual(linkCalls, [{ requestStoneId: 102, duplicateOverride: undefined }]);
+});
+
+test('receipt linking uses a single candidate without a prompt choice', async () => {
+  const linkCalls: Array<{ requestStoneId: number; duplicateOverride?: boolean }> = [];
+  const outcome = await linkSelectedReceiptCandidate({
+    candidates: [receiptCandidates[0]],
+    choice: null,
+    link: async (requestStoneId, duplicateOverride) => { linkCalls.push({ requestStoneId, duplicateOverride }); },
+    isDuplicateError: () => false,
+    confirmDuplicate: () => false,
+  });
+
+  assert.deepEqual(outcome, { status: 'linked', candidate: receiptCandidates[0] });
+  assert.deepEqual(linkCalls, [{ requestStoneId: 101, duplicateOverride: undefined }]);
+});
+
+test('receipt linking propagates a non-duplicate failure without an override prompt', async () => {
+  const failure = new Error('Network unavailable');
+  let confirmations = 0;
+  await assert.rejects(
+    linkSelectedReceiptCandidate({
+      candidates: receiptCandidates,
+      choice: '14',
+      link: async () => { throw failure; },
+      isDuplicateError: () => false,
+      confirmDuplicate: () => { confirmations += 1; return true; },
+    }),
+    failure
+  );
+  assert.equal(confirmations, 0);
 });
 
 test('receipt form requires explicit Stone and Cert choices and at least one received component', () => {

@@ -22,8 +22,8 @@ import {
   defaultCandidateId,
   defaultComponents,
   elsewhereMessage,
+  linkSelectedReceiptCandidate,
   receiptFormReady,
-  selectReceiptCandidate,
   shiftIsoDate,
 } from '@/lib/receiving';
 
@@ -470,31 +470,27 @@ export default function ReceivingPage() {
         setMessage(elsewhereMessage(result.elsewhere));
         return;
       }
-      const candidate = result.candidates.length === 1
-        ? result.candidates[0]
-        : selectReceiptCandidate(result.candidates, window.prompt(
+      const choice = result.candidates.length === 1
+        ? null
+        : window.prompt(
           `Enter the correct request number:\n${result.candidates.map((item) => `#${item.requestId} — ${item.rep.name}`).join('\n')}`
-        ));
-      if (!candidate) {
+        );
+      const outcome = await linkSelectedReceiptCandidate({
+        candidates: result.candidates,
+        choice,
+        link: (requestStoneId, duplicateOverride) => api.linkReceipt(row.id, requestStoneId, duplicateOverride),
+        isDuplicateError: (error) => error instanceof ApiError && error.status === 409,
+        confirmDuplicate: (error) => window.confirm(
+          `${error instanceof Error ? error.message : 'This receipt may already be linked.'}\n\nLink as a genuine duplicate package?`
+        ),
+      });
+      if (outcome.status === 'not_selected') {
         setMessage('No receipt was linked. Enter one of the listed request numbers and try again.');
         return;
       }
-      await api.linkReceipt(row.id, candidate.requestStoneId);
-      setMessage(`${row.barcode} linked to request #${candidate.requestId} for ${candidate.rep.name}.`);
+      setMessage(`${row.barcode} linked to request #${outcome.candidate.requestId} for ${outcome.candidate.rep.name}.`);
       await loadHistory();
     } catch (error) {
-      if (
-        error instanceof ApiError
-        && error.status === 409
-        && window.confirm(`${error.message}\n\nLink as a genuine duplicate package?`)
-      ) {
-        const result = await api.receiptLookup(row.barcode);
-        if (result.candidates.length === 1) {
-          await api.linkReceipt(row.id, result.candidates[0].requestStoneId, true);
-          await loadHistory();
-        }
-        return;
-      }
       setMessage(error instanceof Error ? error.message : 'Could not match this receipt.');
     }
   }
