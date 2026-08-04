@@ -4,6 +4,18 @@ function canResolveRequest(stones, requestScope) {
   return computeBatchStatus(stones, requestScope) === 'fulfilled';
 }
 
+function isStoneDeliberatelyResolved(stone, requestScope) {
+  if (stone.not_found) return true;
+  if (requestScope === 'stone_only') return Boolean(stone.stone_found);
+  if (requestScope === 'cert_only') return Boolean(stone.cert_found);
+  return Boolean(stone.stone_found || stone.cert_found);
+}
+
+function canConfirmResolution(stones, requestScope) {
+  return stones.length > 0
+    && stones.every((stone) => isStoneDeliberatelyResolved(stone, requestScope));
+}
+
 function deriveRequestStatus(
   stones,
   requestScope,
@@ -37,7 +49,9 @@ function deriveMutationState({
 }
 
 module.exports = {
+  canConfirmResolution,
   canResolveRequest,
   deriveMutationState,
   deriveRequestStatus,
+  isStoneDeliberatelyResolved,
 };

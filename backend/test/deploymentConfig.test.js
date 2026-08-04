@@ -53,3 +53,14 @@ test('schema stores branch-scoped physical receipt events independently', () => 
   assert.match(schema, /CHECK \(stone_received OR cert_received\)/);
   assert.match(schema, /idx_shipment_receipts_unmatched/);
 });
+
+test('schema persists request notification lifecycle and explicit not-found resolution', () => {
+  const schema = fs.readFileSync(path.join(__dirname, '../src/db/schema.sql'), 'utf8');
+  assert.match(schema, /inventory_viewed_at TIMESTAMPTZ/);
+  assert.match(schema, /inventory_viewed_by INTEGER REFERENCES users\(id\)/);
+  assert.match(schema, /resolution_confirmed_at TIMESTAMPTZ/);
+  assert.match(schema, /resolution_confirmed_by INTEGER REFERENCES users\(id\)/);
+  assert.match(schema, /not_found\s+BOOLEAN NOT NULL DEFAULT false/);
+  assert.match(schema, /not_found_at\s+TIMESTAMPTZ/);
+  assert.match(schema, /not_found_by INTEGER REFERENCES users\(id\)/);
+});

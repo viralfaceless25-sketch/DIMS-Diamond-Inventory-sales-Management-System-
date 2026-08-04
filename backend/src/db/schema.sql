@@ -99,6 +99,8 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS delivery_route TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS paperwork_type TEXT NOT NULL DEFAULT 'none';
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS transfer_status TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS inventory_viewed_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed_at TIMESTAMPTZ;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_at TIMESTAMPTZ;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received BOOLEAN NOT NULL DEFAULT false;
@@ -130,11 +132,16 @@ CREATE TABLE IF NOT EXISTS request_stones (
   item_type      TEXT NOT NULL DEFAULT 'loose', -- 'loose' | 'jewelry'
   stone_found    BOOLEAN NOT NULL DEFAULT false,
   cert_found     BOOLEAN NOT NULL DEFAULT false,
+  not_found      BOOLEAN NOT NULL DEFAULT false,
   returned       BOOLEAN NOT NULL DEFAULT false,
   stone_found_at TIMESTAMPTZ,
   cert_found_at  TIMESTAMPTZ,
+  not_found_at   TIMESTAMPTZ,
   returned_at    TIMESTAMPTZ
 );
+
+ALTER TABLE request_stones ADD COLUMN IF NOT EXISTS not_found BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE request_stones ADD COLUMN IF NOT EXISTS not_found_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_request_stones_request_id ON request_stones(request_id);
 CREATE INDEX IF NOT EXISTS idx_request_stones_barcode ON request_stones(barcode);
@@ -188,6 +195,9 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_by INTEGER 
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS inventory_viewed_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed_by INTEGER REFERENCES users(id);
+ALTER TABLE request_stones ADD COLUMN IF NOT EXISTS not_found_by INTEGER REFERENCES users(id);
 
 CREATE TABLE IF NOT EXISTS stock_recheck_requests (
   id                  BIGSERIAL PRIMARY KEY,

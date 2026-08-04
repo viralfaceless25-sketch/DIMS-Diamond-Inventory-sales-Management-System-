@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  canConfirmResolution,
   deriveMutationState,
   deriveRequestStatus,
   canResolveRequest,
+  isStoneDeliberatelyResolved,
 } = require('../src/services/resolutionService');
 
 const complete = [{ stone_found: true, cert_found: true }];
@@ -48,4 +50,35 @@ test('recording a later return preserves final request resolution', () => {
     status: 'fulfilled',
     resolutionConfirmed: true,
   });
+});
+
+test('not found explicitly resolves an otherwise missing row', () => {
+  const stone = { stone_found: false, cert_found: false, not_found: true };
+  assert.equal(isStoneDeliberatelyResolved(stone, 'stone_and_cert'), true);
+  assert.equal(canConfirmResolution([stone], 'stone_and_cert'), true);
+});
+
+test('combined requests permit deliberate partial results', () => {
+  assert.equal(canConfirmResolution([
+    { stone_found: true, cert_found: false, not_found: false },
+  ], 'stone_and_cert'), true);
+  assert.equal(canConfirmResolution([
+    { stone_found: false, cert_found: true, not_found: false },
+  ], 'stone_and_cert'), true);
+});
+
+test('an untouched row cannot be confirmed', () => {
+  assert.equal(canConfirmResolution([
+    { stone_found: false, cert_found: false, not_found: false },
+  ], 'stone_and_cert'), false);
+  assert.equal(canConfirmResolution([], 'stone_and_cert'), false);
+});
+
+test('scope-specific requests require their applicable found control', () => {
+  assert.equal(canConfirmResolution([
+    { stone_found: false, cert_found: true, not_found: false },
+  ], 'stone_only'), false);
+  assert.equal(canConfirmResolution([
+    { stone_found: true, cert_found: false, not_found: false },
+  ], 'cert_only'), false);
 });
