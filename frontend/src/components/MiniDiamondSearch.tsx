@@ -61,11 +61,25 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
   const [caratMin, setCaratMin] = useState('');
   const [caratMax, setCaratMax] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const searchGenerationRef = useRef(0);
 
   const hasFilters = !!(shapes.length || colors.length || clarities.length || labs.length || certStatuses.length || caratMin || caratMax);
 
   useEffect(() => {
-    api.stockOptions('ALL', 'loose').then((options) => setLabOptions(options.labs || [])).catch(() => setLabOptions([]));
+    let active = true;
+    api.stockOptions('ALL', 'loose')
+      .then((options) => { if (active) setLabOptions(options.labs || []); })
+      .catch(() => { if (active) setLabOptions([]); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      searchGenerationRef.current += 1;
+    };
   }, []);
 
   function clearFilters() {
@@ -79,6 +93,8 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
   }
 
   useEffect(() => {
+    const generation = ++searchGenerationRef.current;
+    const isCurrent = () => mountedRef.current && searchGenerationRef.current === generation;
     const term = q.trim();
     if (term.length < 2 && !hasFilters) {
       setRows([]);
@@ -101,6 +117,7 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
                 .catch(() => null)
             )
           );
+          if (!isCurrent()) return;
           setRows(results.filter((row): row is LooseStone => Boolean(row)));
           setOpen(true);
           return;
@@ -119,12 +136,13 @@ export function MiniDiamondSearch({ t }: { t: Theme }) {
           pageSize: 6,
           requestableOnly: false,
         });
+        if (!isCurrent()) return;
         setRows(res.rows);
         setOpen(true);
       } catch {
-        setRows([]);
+        if (isCurrent()) setRows([]);
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
     }, 250);
     return () => window.clearTimeout(timer);
