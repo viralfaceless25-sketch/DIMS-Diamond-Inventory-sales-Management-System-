@@ -77,13 +77,15 @@ export default function RequestsPage() {
       return;
     }
     const detail = await api.requestDetail(id);
-    const viewed = await api.markRequestViewed(id);
+    const viewed = user?.branch === detail.fulfillmentBranch
+      ? await api.markRequestViewed(id)
+      : null;
     setExpanded((p) => ({
       ...p,
       [id]: {
         ...detail,
-        inventoryViewedAt: viewed.inventoryViewedAt,
-        inventoryViewedBy: viewed.inventoryViewedBy,
+        inventoryViewedAt: viewed?.inventoryViewedAt || detail.inventoryViewedAt,
+        inventoryViewedBy: viewed?.inventoryViewedBy || detail.inventoryViewedBy,
       },
     }));
   }
@@ -168,6 +170,7 @@ export default function RequestsPage() {
       await load();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not resolve this request.');
+      await refreshExpandedRequest(requestId);
     }
   }
 
@@ -185,6 +188,7 @@ export default function RequestsPage() {
       await load();
     } catch (err) {
       setScanMessage(err instanceof Error ? err.message : 'Could not mark the scanned barcode.');
+      await refreshExpandedRequest(requestId);
     }
   }
 

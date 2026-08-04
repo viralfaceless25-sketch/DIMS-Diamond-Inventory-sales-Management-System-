@@ -64,6 +64,9 @@ test('request shells mount temporary notifications and inventory uses active Not
   assert.match(requests, /refreshExpandedRequest/);
   assert.match(requests, /canEditResolution/);
   assert.match(requests, /setCollapsedGroups/);
+  assert.match(requests, /user\?\.branch === detail\.fulfillmentBranch[\s\S]*api\.markRequestViewed/);
+  assert.match(requests, /Could not resolve this request[\s\S]*refreshExpandedRequest\(requestId\)/);
+  assert.match(requests, /Could not mark the scanned barcode[\s\S]*refreshExpandedRequest\(requestId\)/);
   assert.match(requests, /requestId.*useSearchParams|useSearchParams.*requestId/s);
   assert.match(myRequests, /Viewed by inventory/);
   assert.match(myRequests, /Confirmed by inventory/);
