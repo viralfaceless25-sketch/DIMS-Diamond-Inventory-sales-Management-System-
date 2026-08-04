@@ -36,6 +36,7 @@ uploads/
 *.bak
 tmp/
 output/
+artifacts/production-audit-*/
 
 # Local tools, archives, and extracted handoffs
 tools/
