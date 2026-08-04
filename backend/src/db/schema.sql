@@ -195,6 +195,7 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_confirmed_by INTEGER 
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_transfer_received_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS erp_receive_requested_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id);
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS requested_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS inventory_viewed_by INTEGER REFERENCES users(id);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS resolution_confirmed_by INTEGER REFERENCES users(id);
 ALTER TABLE request_stones ADD COLUMN IF NOT EXISTS not_found_by INTEGER REFERENCES users(id);

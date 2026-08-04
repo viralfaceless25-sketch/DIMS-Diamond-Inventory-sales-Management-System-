@@ -60,6 +60,7 @@ test('schema persists request notification lifecycle and explicit not-found reso
   assert.match(schema, /inventory_viewed_by INTEGER REFERENCES users\(id\)/);
   assert.match(schema, /resolution_confirmed_at TIMESTAMPTZ/);
   assert.match(schema, /resolution_confirmed_by INTEGER REFERENCES users\(id\)/);
+  assert.match(schema, /requested_by INTEGER REFERENCES users\(id\)/);
   assert.match(schema, /not_found\s+BOOLEAN NOT NULL DEFAULT false/);
   assert.match(schema, /not_found_at\s+TIMESTAMPTZ/);
   assert.match(schema, /not_found_by INTEGER REFERENCES users\(id\)/);

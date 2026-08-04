@@ -54,4 +54,11 @@ function assertInventoryRequestMutation({
   }
 }
 
-module.exports = { assertInventoryRequestMutation };
+function assertInventoryRequestView({ request, actorBranch }) {
+  const sourceBranch = request.fulfillment_branch || request.branch;
+  if (actorBranch !== sourceBranch) {
+    throw requestError(`Only ${sourceBranch} inventory can view this request`, 403);
+  }
+}
+
+module.exports = { assertInventoryRequestMutation, assertInventoryRequestView };

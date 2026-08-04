@@ -3,6 +3,7 @@ const pool = require('../db/pool');
 const { sortStones } = require('../services/sortingService');
 const { computeBatchStatus, isActive } = require('../services/statusService');
 const {
+  canConfirmResolution,
   deriveMutationState,
   deriveRequestStatus,
 } = require('../services/resolutionService');
@@ -22,6 +23,7 @@ const {
 } = require('../services/stockRecheckService');
 const {
   assertInventoryRequestMutation,
+  assertInventoryRequestView,
 } = require('../services/requestAuthorization');
 const { inventoryBranchScope } = require('../services/branchScope');
 const {
@@ -32,7 +34,19 @@ const {
   recordRequestMovement,
   recordStoneMovement,
 } = require('../services/movementService');
-const { broadcast } = require('../sockets');
+const { broadcast, emitToRoom } = require('../sockets');
+const {
+  buildRequestCreatedNotification,
+  inventoryRoom,
+  userRoom,
+} = require('../services/requestNotificationService');
+const {
+  applyResolutionChoice,
+  buildConfirmedNotification,
+  buildViewedNotification,
+  recordFirstView,
+  requestingUserId,
+} = require('../services/requestLifecycleService');
 const { withTransaction } = require('../db/withRetry');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
@@ -47,8 +61,8 @@ router.use(requireAuth);
 const STONE_DETAIL_SELECT = `
   SELECT
     rs.id, rs.request_id, rs.barcode, rs.item_type,
-    rs.stone_found, rs.cert_found, rs.returned,
-    rs.stone_found_at, rs.cert_found_at, rs.returned_at,
+    rs.stone_found, rs.cert_found, rs.not_found, rs.returned,
+    rs.stone_found_at, rs.cert_found_at, rs.not_found_at, rs.not_found_by, rs.returned_at,
     ld.shape, COALESCE(ld.carat, jp.diamond_cts) AS carat, ld.color, ld.clarity, COALESCE(ld.certificate_no, jp.cert_no) AS cert_no,
     jp.category, jp.item,
     COALESCE(ld.branch, jp.branch) AS snapshot_branch,
@@ -299,6 +313,7 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
 
     const { rows: requests } = await pool.query(
       `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.workflow_version, r.transfer_status, r.resolution_confirmed,
+              r.inventory_viewed_at, r.inventory_viewed_by, r.resolution_confirmed_at, r.resolution_confirmed_by,
               r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
               r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
               r.erp_receive_requested_at, r.erp_receive_requested_by,
@@ -369,6 +384,10 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
           cancellationStatus: r.cancellation_status,
           cancellationReason: r.cancellation_reason,
           resolutionConfirmed: r.resolution_confirmed,
+          inventoryViewedAt: r.inventory_viewed_at,
+          inventoryViewedBy: r.inventory_viewed_by,
+          resolutionConfirmedAt: r.resolution_confirmed_at,
+          resolutionConfirmedBy: r.resolution_confirmed_by,
           hasLabel: r.has_label,
           hasPaperwork: r.has_paperwork,
           requestedAt: r.requested_at,
@@ -405,6 +424,7 @@ router.get('/:id', async (req, res, next) => {
     const { id } = req.params;
     const { rows } = await pool.query(
       `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.workflow_version, r.transfer_status, r.resolution_confirmed,
+              r.inventory_viewed_at, r.inventory_viewed_by, r.resolution_confirmed_at, r.resolution_confirmed_by,
               r.erp_transfer_confirmed, r.erp_transfer_confirmed_at, r.erp_transfer_confirmed_by,
               r.erp_transfer_received, r.erp_transfer_received_at, r.erp_transfer_received_by,
               r.erp_receive_requested_at, r.erp_receive_requested_by,
@@ -456,6 +476,10 @@ router.get('/:id', async (req, res, next) => {
       cancellationStatus: request.cancellation_status,
       cancellationReason: request.cancellation_reason,
       resolutionConfirmed: request.resolution_confirmed,
+      inventoryViewedAt: request.inventory_viewed_at,
+      inventoryViewedBy: request.inventory_viewed_by,
+      resolutionConfirmedAt: request.resolution_confirmed_at,
+      resolutionConfirmedBy: request.resolution_confirmed_by,
       hasLabel: request.has_label,
       hasPaperwork: request.has_paperwork,
       requestedAt: request.requested_at,
@@ -469,6 +493,59 @@ router.get('/:id', async (req, res, next) => {
       stones: annotated,
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/requests/:id/viewed — first authorized inventory expansion only.
+router.post('/:id/viewed', requireRole('inventory'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Valid request is required' });
+    const actorBranch = await inventoryBranch(req.user.id);
+    if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
+
+    const result = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `SELECT branch, fulfillment_branch, status, resolution_confirmed,
+                inventory_viewed_at, inventory_viewed_by
+         FROM requests WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      if (!rows[0]) {
+        const error = new Error('Request not found');
+        error.status = 404;
+        throw error;
+      }
+      assertInventoryRequestView({ request: rows[0], actorBranch });
+      const transition = await recordFirstView(client, id, req.user.id);
+      const salesUserId = transition.firstView
+        ? await requestingUserId(client, id)
+        : null;
+      return {
+        ...transition,
+        inventoryViewedAt: transition.inventoryViewedAt || rows[0].inventory_viewed_at,
+        inventoryViewedBy: transition.inventoryViewedBy || rows[0].inventory_viewed_by,
+        fulfillmentBranch: rows[0].fulfillment_branch || rows[0].branch,
+        salesUserId,
+      };
+    });
+
+    if (result.firstView && result.salesUserId) {
+      emitToRoom(
+        userRoom(result.salesUserId),
+        'notification:request-viewed',
+        buildViewedNotification({ id, fulfillmentBranch: result.fulfillmentBranch })
+      );
+    }
+    res.json({
+      id,
+      inventoryViewedAt: result.inventoryViewedAt,
+      inventoryViewedBy: result.inventoryViewedBy,
+      firstView: result.firstView,
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   }
 });
@@ -491,8 +568,9 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
     }
     const normalizedStones = normalizeRequestedStones(stones);
 
-    const { rows: repRows } = await pool.query('SELECT branch FROM sales_reps WHERE id = $1', [salesRepId]);
+    const { rows: repRows } = await pool.query('SELECT branch, name FROM sales_reps WHERE id = $1', [salesRepId]);
     const repBranch = repRows[0]?.branch;
+    const repName = repRows[0]?.name;
     if (!repBranch) {
       return res.status(400).json({ error: 'Your sales rep profile is missing a branch' });
     }
@@ -557,9 +635,9 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
       // Locking, availability validation, holder recheck, and writes share one
       // retryable transaction so simultaneous requests cannot both win.
       const { rows: reqRows } = await client.query(
-        `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, workflow_version, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 2, $8, $9, $10, $11, $12, $13, 'awaiting') RETURNING id`,
-        [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, paperworkType, deliveryRoute ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress]
+        `INSERT INTO requests (sales_rep_id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, workflow_version, transfer_status, source, request_scope, request_type, dropoff_company, dropoff_address, requested_by, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 2, $8, $9, $10, $11, $12, $13, $14, 'awaiting') RETURNING id`,
+        [salesRepId, repBranch, fulfillmentBranch, deliveryBranch, crossBranch, deliveryRoute, paperworkType, deliveryRoute ? 'awaiting_source' : null, source === 'invoice_upload' ? 'invoice_upload' : 'manual', requestScope, requestType, dropoffCompany, dropoffAddress, req.user.id]
       );
       const newRequestId = reqRows[0].id;
       await consumeAvailabilityAuthorizations(
@@ -592,6 +670,8 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         deliveryBranch,
         crossBranch,
         deliveryRoute,
+        requestScope,
+        requestType,
       };
     });
 
@@ -611,6 +691,18 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
         });
       }
     }
+    emitToRoom(
+      inventoryRoom(creation.fulfillmentBranch),
+      'notification:request-created',
+      buildRequestCreatedNotification({
+        id: creation.requestId,
+        repName,
+        repBranch,
+        requestType: creation.requestType,
+        requestScope: creation.requestScope,
+        fulfillmentBranch: creation.fulfillmentBranch,
+      }, stonesFull)
+    );
 
     res.status(201).json({
       id: creation.requestId,
@@ -635,28 +727,63 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
 });
 
 // PATCH /api/requests/:id/stones/:stoneId
-// body: { field: 'stone_found' | 'cert_found' | 'returned', value: boolean }
+// body: { field: 'stone_found' | 'cert_found' | 'not_found' | 'returned', value: boolean }
 // Only inventory staff fulfill/return stones. Reps see this state read-only.
 router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, next) => {
   try {
     const { id, stoneId } = req.params;
     const { field, value } = req.body;
-    const allowedFields = ['stone_found', 'cert_found', 'returned'];
+    const allowedFields = ['stone_found', 'cert_found', 'not_found', 'returned'];
     if (!allowedFields.includes(field) || typeof value !== 'boolean') {
       return res.status(400).json({ error: `field must be one of ${allowedFields.join(', ')}, value must be boolean` });
     }
 
-    const timestampCol = `${field}_at`;
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client) => {
-      const { rows: changedRows } = await client.query(
-        `UPDATE request_stones SET ${field} = $1, ${timestampCol} = CASE WHEN $1 THEN now() ELSE NULL END
-         WHERE id = $2 AND request_id = $3 AND ${field} IS DISTINCT FROM $1
-         RETURNING id`,
-        [value, stoneId, id]
-      );
-      if (value && changedRows[0]) {
+      let changed = false;
+      if (field === 'returned') {
+        const { rows: changedRows } = await client.query(
+          `UPDATE request_stones
+           SET returned = $1, returned_at = CASE WHEN $1 THEN now() ELSE NULL END
+           WHERE id = $2 AND request_id = $3 AND returned IS DISTINCT FROM $1
+           RETURNING id`,
+          [value, stoneId, id]
+        );
+        changed = Boolean(changedRows[0]);
+      } else {
+        const { rows } = await client.query(
+          `SELECT stone_found, cert_found, not_found, stone_found_at,
+                  cert_found_at, not_found_at, not_found_by
+           FROM request_stones WHERE id = $1 AND request_id = $2`,
+          [stoneId, id]
+        );
+        if (!rows[0]) {
+          const error = new Error('Requested item not found');
+          error.status = 404;
+          throw error;
+        }
+        const nextChoice = applyResolutionChoice(rows[0], field, value, req.user.id);
+        const { rows: changedRows } = await client.query(
+          `UPDATE request_stones
+           SET stone_found = $1, cert_found = $2, not_found = $3,
+               stone_found_at = $4, cert_found_at = $5,
+               not_found_at = $6, not_found_by = $7
+           WHERE id = $8 AND request_id = $9
+             AND (stone_found, cert_found, not_found, stone_found_at,
+                  cert_found_at, not_found_at, not_found_by)
+                 IS DISTINCT FROM ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id`,
+          [
+            nextChoice.stone_found, nextChoice.cert_found, nextChoice.not_found,
+            nextChoice.stone_found_at, nextChoice.cert_found_at,
+            nextChoice.not_found_at, nextChoice.not_found_by,
+            stoneId, id,
+          ]
+        );
+        changed = Boolean(changedRows[0]);
+      }
+      if (value && changed && field !== 'not_found') {
         await recordStoneMovement(client, {
           requestId: Number(id),
           requestStoneId: Number(stoneId),
@@ -691,8 +818,8 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
     if (typeof value !== 'boolean') {
       return res.status(400).json({ error: 'value must be boolean' });
     }
-    if (field && !['stone_found', 'cert_found', 'returned'].includes(field)) {
-      return res.status(400).json({ error: 'field must be stone_found, cert_found, or returned' });
+    if (field && !['stone_found', 'cert_found', 'not_found', 'returned'].includes(field)) {
+      return res.status(400).json({ error: 'field must be stone_found, cert_found, not_found, or returned' });
     }
 
     const actorBranch = await inventoryBranch(req.user.id);
@@ -701,44 +828,50 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
       const { rows: scopeRows } = await client.query('SELECT request_scope FROM requests WHERE id = $1', [id]);
       const requestScope = scopeRows[0]?.request_scope || 'stone_and_cert';
       const { rows: beforeRows } = await client.query(
-        'SELECT id, stone_found, cert_found, returned FROM request_stones WHERE request_id = $1',
+        `SELECT id, stone_found, cert_found, not_found, returned,
+                stone_found_at, cert_found_at, not_found_at, not_found_by
+         FROM request_stones WHERE request_id = $1`,
         [id]
       );
 
-      if (field) {
-        const timestampCol = `${field}_at`;
-        await client.query(
-          `UPDATE request_stones SET ${field} = $1, ${timestampCol} = CASE WHEN $1 THEN now() ELSE NULL END WHERE request_id = $2`,
-          [value, id]
-        );
-      } else if (requestScope === 'stone_only') {
+      if (field === 'returned') {
         await client.query(
           `UPDATE request_stones
-           SET stone_found = $1,
-               stone_found_at = CASE WHEN $1 THEN now() ELSE NULL END
-           WHERE request_id = $2`,
-          [value, id]
-        );
-      } else if (requestScope === 'cert_only') {
-        await client.query(
-          `UPDATE request_stones
-           SET cert_found = $1,
-               cert_found_at = CASE WHEN $1 THEN now() ELSE NULL END
+           SET returned = $1, returned_at = CASE WHEN $1 THEN now() ELSE NULL END
            WHERE request_id = $2`,
           [value, id]
         );
       } else {
-        await client.query(
-          `UPDATE request_stones
-           SET stone_found = $1, cert_found = $1,
-               stone_found_at = CASE WHEN $1 THEN now() ELSE NULL END,
-               cert_found_at = CASE WHEN $1 THEN now() ELSE NULL END
-           WHERE request_id = $2`,
-          [value, id]
-        );
+        const fields = field
+          ? [field]
+          : requestScope === 'stone_only'
+            ? ['stone_found']
+            : requestScope === 'cert_only'
+              ? ['cert_found']
+              : ['stone_found', 'cert_found'];
+        const changedAt = new Date();
+        for (const before of beforeRows) {
+          let nextChoice = before;
+          for (const changedField of fields) {
+            nextChoice = applyResolutionChoice(nextChoice, changedField, value, req.user.id, changedAt);
+          }
+          await client.query(
+            `UPDATE request_stones
+             SET stone_found = $1, cert_found = $2, not_found = $3,
+                 stone_found_at = $4, cert_found_at = $5,
+                 not_found_at = $6, not_found_by = $7
+             WHERE id = $8 AND request_id = $9`,
+            [
+              nextChoice.stone_found, nextChoice.cert_found, nextChoice.not_found,
+              nextChoice.stone_found_at, nextChoice.cert_found_at,
+              nextChoice.not_found_at, nextChoice.not_found_by,
+              before.id, id,
+            ]
+          );
+        }
       }
 
-      if (value) {
+      if (value && field !== 'not_found') {
         const fields = field
           ? [field]
           : requestScope === 'stone_only'
@@ -787,25 +920,55 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const result = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
-        `SELECT branch, fulfillment_branch, cross_branch, delivery_route, transfer_status, request_scope, status
+        `SELECT branch, fulfillment_branch, cross_branch, delivery_route,
+                transfer_status, request_scope, status, resolution_confirmed,
+                resolution_confirmed_at, resolution_confirmed_by
          FROM requests WHERE id = $1 FOR UPDATE`, [id]
       );
       if (!rows[0]) { const err = new Error('Request not found'); err.status = 404; throw err; }
       assertInventoryRequestMutation({ request: rows[0], actorBranch });
       const stones = await fetchStonesForRequest(id, client);
+      if (!canConfirmResolution(stones, rows[0].request_scope)) {
+        const error = new Error('Resolve every item with STN, CERT, or Not Found before confirming.');
+        error.status = 409;
+        throw error;
+      }
       const status = deriveRequestStatus(
         stones,
         rows[0].request_scope,
         true,
         Boolean(rows[0].delivery_route)
       );
-      await client.query('UPDATE requests SET status = $1, resolution_confirmed = true WHERE id = $2', [status, id]);
+      const firstConfirmation = !rows[0].resolution_confirmed;
+      let confirmationAudit = rows[0];
+      if (firstConfirmation) {
+        const { rows: confirmedRows } = await client.query(
+          `UPDATE requests
+           SET status = $1, resolution_confirmed = true,
+               resolution_confirmed_at = now(), resolution_confirmed_by = $3
+           WHERE id = $2
+           RETURNING resolution_confirmed_at, resolution_confirmed_by`,
+          [status, id, req.user.id]
+        );
+        confirmationAudit = confirmedRows[0];
+      }
+      const salesUserId = firstConfirmation
+        ? await requestingUserId(client, id)
+        : null;
+      const foundCount = stones.filter((stone) => stone.stone_found || stone.cert_found).length;
+      const notFoundCount = stones.filter((stone) => stone.not_found).length;
       return {
         stones,
         status,
         branch: rows[0].branch,
-        fulfillmentBranch: rows[0].fulfillment_branch,
+        fulfillmentBranch: rows[0].fulfillment_branch || rows[0].branch,
         crossBranch: rows[0].cross_branch,
+        firstConfirmation,
+        resolutionConfirmedAt: confirmationAudit.resolution_confirmed_at,
+        resolutionConfirmedBy: confirmationAudit.resolution_confirmed_by,
+        salesUserId,
+        foundCount,
+        notFoundCount,
       };
     });
     const event = result.status === 'fulfilled'
@@ -818,11 +981,25 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
         status: result.status,
       });
     }
+    if (result.firstConfirmation && result.salesUserId) {
+      emitToRoom(
+        userRoom(result.salesUserId),
+        'notification:request-confirmed',
+        buildConfirmedNotification({
+          id,
+          fulfillmentBranch: result.fulfillmentBranch,
+          foundCount: result.foundCount,
+          notFoundCount: result.notFoundCount,
+        })
+      );
+    }
     res.json({
       id,
       status: result.status,
       stones: result.stones,
       resolutionConfirmed: true,
+      resolutionConfirmedAt: result.resolutionConfirmedAt,
+      resolutionConfirmedBy: result.resolutionConfirmedBy,
     });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -838,6 +1015,8 @@ router.get('/by-rep/:repId', async (req, res, next) => {
     }
     const { rows: requests } = await pool.query(
       `SELECT id, branch, fulfillment_branch, delivery_branch, cross_branch, delivery_route, paperwork_type, workflow_version, transfer_status,
+              inventory_viewed_at, inventory_viewed_by, resolution_confirmed,
+              resolution_confirmed_at, resolution_confirmed_by,
               erp_transfer_confirmed, erp_transfer_confirmed_at, erp_transfer_confirmed_by,
               erp_transfer_received, erp_transfer_received_at, erp_transfer_received_by,
               erp_receive_requested_at, erp_receive_requested_by,
@@ -862,6 +1041,11 @@ router.get('/by-rep/:repId', async (req, res, next) => {
           paperworkType: r.paperwork_type,
           workflowVersion: r.workflow_version,
           transferStatus: r.transfer_status,
+          inventoryViewedAt: r.inventory_viewed_at,
+          inventoryViewedBy: r.inventory_viewed_by,
+          resolutionConfirmed: r.resolution_confirmed,
+          resolutionConfirmedAt: r.resolution_confirmed_at,
+          resolutionConfirmedBy: r.resolution_confirmed_by,
           erpTransferConfirmed: r.erp_transfer_confirmed,
           erpTransferConfirmedAt: r.erp_transfer_confirmed_at,
           erpTransferConfirmedBy: r.erp_transfer_confirmed_by,
