@@ -1,8 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  assertInventoryRequestRead,
   assertInventoryRequestMutation,
+  assertResolutionFieldApplies,
 } = require('../src/services/requestAuthorization');
+
+test('inventory detail reads are limited to participating branches', () => {
+  const request = {
+    branch: 'LA',
+    fulfillment_branch: 'NY',
+    delivery_branch: 'LA',
+  };
+  assert.doesNotThrow(() => assertInventoryRequestRead({ request, actorBranch: 'NY' }));
+  assert.doesNotThrow(() => assertInventoryRequestRead({ request, actorBranch: 'LA' }));
+  assert.throws(
+    () => assertInventoryRequestRead({ request, actorBranch: 'CH' }),
+    /not have access/
+  );
+});
+
+test('resolution fields must apply to the stored request scope', () => {
+  assert.doesNotThrow(() => assertResolutionFieldApplies('stone_only', 'stone_found'));
+  assert.doesNotThrow(() => assertResolutionFieldApplies('stone_only', 'not_found'));
+  assert.throws(() => assertResolutionFieldApplies('stone_only', 'cert_found'), /does not request certificates/);
+  assert.throws(() => assertResolutionFieldApplies('cert_only', 'stone_found'), /does not request stones/);
+});
 
 test('local request mutations require the supplying branch inventory', () => {
   assert.doesNotThrow(() => assertInventoryRequestMutation({
@@ -131,4 +154,24 @@ test('local inventory can record a return only after the request is fulfilled', 
     actorBranch: 'NY',
     mutationField: 'returned',
   }), /completed request/);
+});
+
+test('confirmed resolution is immutable while later returns remain allowed', () => {
+  const confirmed = {
+    status: 'half_fulfilled',
+    resolution_confirmed: true,
+    cross_branch: false,
+    fulfillment_branch: 'NY',
+    branch: 'NY',
+  };
+  assert.throws(() => assertInventoryRequestMutation({
+    request: confirmed,
+    actorBranch: 'NY',
+    mutationField: 'not_found',
+  }), /already confirmed/);
+  assert.doesNotThrow(() => assertInventoryRequestMutation({
+    request: { ...confirmed, status: 'fulfilled' },
+    actorBranch: 'NY',
+    mutationField: 'returned',
+  }));
 });

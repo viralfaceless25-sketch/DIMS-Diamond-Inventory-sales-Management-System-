@@ -61,6 +61,9 @@ test('request shells mount temporary notifications and inventory uses active Not
   assert.doesNotMatch(requests, /<span>RET<\/span>/);
   assert.match(requests, /stone\.not_found/);
   assert.match(requests, /api\.markRequestViewed/);
+  assert.match(requests, /refreshExpandedRequest/);
+  assert.match(requests, /canEditResolution/);
+  assert.match(requests, /setCollapsedGroups/);
   assert.match(requests, /requestId.*useSearchParams|useSearchParams.*requestId/s);
   assert.match(myRequests, /Viewed by inventory/);
   assert.match(myRequests, /Confirmed by inventory/);

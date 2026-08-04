@@ -17,7 +17,7 @@ import {
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
 
-const STONE_TABLE_COLS = '58px 58px 58px minmax(170px,1.35fr) minmax(150px,1fr) 96px 72px 88px minmax(170px,1fr)';
+const STONE_TABLE_COLS = '58px 58px 84px minmax(170px,1.35fr) minmax(150px,1fr) 96px 72px 88px minmax(170px,1fr)';
 
 export default function RequestsPage() {
   const { theme: t } = useTheme();
@@ -88,12 +88,40 @@ export default function RequestsPage() {
     }));
   }
 
+  async function refreshExpandedRequest(requestId: number) {
+    try {
+      const detail = await api.requestDetail(requestId);
+      setExpanded((current) => current[requestId]
+        ? { ...current, [requestId]: detail }
+        : current);
+    } catch {
+      setExpanded((current) => {
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
+    }
+    await load();
+  }
+
   useEffect(() => {
     const targetId = Number(requestIdParam);
-    if (!Number.isInteger(targetId)
-      || !requests.some((request) => request.id === targetId)
-      || expanded[targetId]
-      || targetOpeningRef.current.has(targetId)) return;
+    const targetRequest = requests.find((request) => request.id === targetId);
+    if (!Number.isInteger(targetId) || !targetRequest) return;
+    const route = targetRequest.crossBranch
+      ? `${targetRequest.fulfillmentBranch} to ${targetRequest.deliveryBranch}`
+      : `${targetRequest.branch} local`;
+    setCollapsedGroups((current) => ({
+      ...current,
+      [`${route}-${targetRequest.requestType}`]: false,
+    }));
+    if (expanded[targetId]) {
+      window.setTimeout(() => {
+        document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 0);
+      return;
+    }
+    if (targetOpeningRef.current.has(targetId)) return;
     targetOpeningRef.current.add(targetId);
     void toggleExpand(targetId)
       .then(() => window.setTimeout(() => {
@@ -103,21 +131,31 @@ export default function RequestsPage() {
   }, [expanded, requestIdParam, requests]);
 
   async function toggleStone(reqId: number, stone: RequestStone, field: 'stone_found' | 'cert_found' | 'not_found' | 'returned') {
-    const res = await api.toggleStone(reqId, stone.id, field, !stone[field]);
-    setExpanded((p) => {
-      if (!p[reqId]) return p;
-      return { ...p, [reqId]: { ...p[reqId], status: res.status, stones: res.stones } };
-    });
-    load();
+    try {
+      const res = await api.toggleStone(reqId, stone.id, field, !stone[field]);
+      setExpanded((p) => {
+        if (!p[reqId]) return p;
+        return { ...p, [reqId]: { ...p[reqId], status: res.status, stones: res.stones } };
+      });
+      await load();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update this requested item.');
+      await refreshExpandedRequest(reqId);
+    }
   }
 
   async function checkAll(reqId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'not_found' | 'returned') {
-    const res = await api.checkAll(reqId, value, field);
-    setExpanded((p) => {
-      if (!p[reqId]) return p;
-      return { ...p, [reqId]: { ...p[reqId], status: res.status, stones: res.stones } };
-    });
-    load();
+    try {
+      const res = await api.checkAll(reqId, value, field);
+      setExpanded((p) => {
+        if (!p[reqId]) return p;
+        return { ...p, [reqId]: { ...p[reqId], status: res.status, stones: res.stones } };
+      });
+      await load();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update these requested items.');
+      await refreshExpandedRequest(reqId);
+    }
   }
 
   async function confirmResolution(requestId: number) {
@@ -470,10 +508,11 @@ export default function RequestsPage() {
                       {group.requests.map((r) => {
                         const detail = expanded[r.id];
                         const allChecked = isRequestChecked(r, detail);
-                        const canConfirm = canResolveItems(r)
+                        const resolutionConfirmed = Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed);
+                        const canEditResolution = canResolveItems(r) && !resolutionConfirmed;
+                        const canConfirm = canEditResolution
                           && Boolean(detail)
-                          && allChecked
-                          && !Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed);
+                          && allChecked;
                         const documents = requestDocumentState(r);
                         const strictDocuments = Number(r.workflowVersion || 1) >= 2;
                         return (
@@ -485,7 +524,7 @@ export default function RequestsPage() {
                                 title="Confirm the request with the items currently checked"
                                 style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: canConfirm ? ACCENT : t.bgSide, color: canConfirm ? '#0a0e0d' : t.textFaint, cursor: canConfirm ? 'pointer' : 'not-allowed', font: "800 13px 'Inter'" }}
                               >
-                                {detail?.resolutionConfirmed || r.resolutionConfirmed ? 'Confirmed' : 'Confirm'}
+                                {resolutionConfirmed ? 'Confirmed' : 'Confirm'}
                               </button>
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
@@ -580,10 +619,10 @@ export default function RequestsPage() {
                                   ));
                                   return (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px 0' }}>
-                                      <Check checked={allFound} onClick={() => checkAll(r.id, !allFound)} disabled={!canResolveItems(r)} size={18} />
+                                      <Check checked={allFound} onClick={() => checkAll(r.id, !allFound)} disabled={!canEditResolution} size={18} />
                                       <span
-                                        onClick={() => (canResolveItems(r) ? checkAll(r.id, !allFound) : undefined)}
-                                        style={{ font: "800 13px 'Inter'", color: canResolveItems(r) ? t.text : t.textFainter, cursor: canResolveItems(r) ? 'pointer' : 'default' }}
+                                        onClick={() => (canEditResolution ? checkAll(r.id, !allFound) : undefined)}
+                                        style={{ font: "800 13px 'Inter'", color: canEditResolution ? t.text : t.textFainter, cursor: canEditResolution ? 'pointer' : 'default' }}
                                       >
                                         Mark all found
                                       </span>
@@ -591,16 +630,16 @@ export default function RequestsPage() {
                                   );
                                 })()}
                                 <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 13.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
-                                  <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} size={18} /></div>
-                                  <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} size={18} /></div>
-                                  <div title="Mark every requested item not found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>Not Found</span><Check checked={detail.stones.every((stone) => stone.not_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.not_found), 'not_found')} disabled={!canResolveItems(r)} accent="oklch(68% 0.18 25)" size={18} /></div>
+                                  <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canEditResolution} size={18} /></div>
+                                  <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canEditResolution} size={18} /></div>
+                                  <div title="Mark every requested item not found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>Not Found</span><Check checked={detail.stones.every((stone) => stone.not_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.not_found), 'not_found')} disabled={!canEditResolution} accent="oklch(68% 0.18 25)" size={18} /></div>
                                   <div>STOCK #</div><div>SHAPE</div><div>CARAT</div><div>COL</div><div>CLTY</div><div>CERT #</div>
                                 </div>
                                 {detail.stones.map((s) => (
                                   <div key={s.id} style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '13px 18px', alignItems: 'center', minHeight: 52, borderTop: `1px solid ${t.rowBorder}`, background: s.duplicate ? 'oklch(70% 0.17 30 / 0.08)' : 'transparent' }}>
-                                    <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} />
-                                    <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} />
-                                    <Check checked={s.not_found} onClick={() => toggleStone(r.id, s, 'not_found')} size={24} disabled={!canResolveItems(r)} accent="oklch(68% 0.18 25)" />
+                                    <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canEditResolution} />
+                                    <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canEditResolution} />
+                                    <Check checked={s.not_found} onClick={() => toggleStone(r.id, s, 'not_found')} size={24} disabled={!canEditResolution} accent="oklch(68% 0.18 25)" />
                                     <div style={{ font: "700 16px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <Copyable value={s.barcode} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                                       {s.duplicate && <span title={`Also held by: ${s.duplicateWith?.join(', ')}`} style={{ color: RED, flex: 'none' }}>!</span>}

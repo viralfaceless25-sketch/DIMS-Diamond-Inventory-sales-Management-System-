@@ -23,7 +23,9 @@ const {
 } = require('../services/stockRecheckService');
 const {
   assertInventoryRequestMutation,
+  assertInventoryRequestRead,
   assertInventoryRequestView,
+  assertResolutionFieldApplies,
 } = require('../services/requestAuthorization');
 const { inventoryBranchScope } = require('../services/branchScope');
 const {
@@ -212,6 +214,7 @@ async function applyStoneMutationAndRecompute(
       actorBranch,
       mutationField,
     });
+    assertResolutionFieldApplies(lockRows[0].request_scope, mutationField);
 
     await mutateFn(client);
 
@@ -444,6 +447,9 @@ router.get('/:id', async (req, res, next) => {
     if (req.user.role === 'sales_rep' && request.rep_id !== req.user.salesRepId) {
       return res.status(403).json({ error: 'You do not have access to this request' });
     }
+    if (req.user.role === 'inventory') {
+      assertInventoryRequestRead({ request, actorBranch: req.user.branch });
+    }
 
     const stones = await fetchStonesForRequest(id);
     const holdersMap = await getHoldersMap(request.branch);
@@ -493,6 +499,7 @@ router.get('/:id', async (req, res, next) => {
       stones: annotated,
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   }
 });
@@ -893,7 +900,7 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
           }
         }
       }
-    }, { mutationField: field || null });
+    }, { mutationField: field || 'resolution' });
 
     broadcast(branch, 'request:updated', { requestId: Number(id), status });
     if (crossBranch) broadcast(fulfillmentBranch, 'request:updated', { requestId: Number(id), status });
@@ -922,24 +929,28 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
       const { rows } = await client.query(
         `SELECT branch, fulfillment_branch, cross_branch, delivery_route,
                 transfer_status, request_scope, status, resolution_confirmed,
-                resolution_confirmed_at, resolution_confirmed_by
+                resolution_confirmed_at, resolution_confirmed_by,
+                inventory_viewed_at, inventory_viewed_by
          FROM requests WHERE id = $1 FOR UPDATE`, [id]
       );
       if (!rows[0]) { const err = new Error('Request not found'); err.status = 404; throw err; }
-      assertInventoryRequestMutation({ request: rows[0], actorBranch });
+      assertInventoryRequestMutation({ request: rows[0], actorBranch, mutationField: 'confirm_resolution' });
       const stones = await fetchStonesForRequest(id, client);
       if (!canConfirmResolution(stones, rows[0].request_scope)) {
         const error = new Error('Resolve every item with STN, CERT, or Not Found before confirming.');
         error.status = 409;
         throw error;
       }
-      const status = deriveRequestStatus(
-        stones,
-        rows[0].request_scope,
-        true,
-        Boolean(rows[0].delivery_route)
-      );
+      const viewTransition = await recordFirstView(client, id, req.user.id);
       const firstConfirmation = !rows[0].resolution_confirmed;
+      const status = firstConfirmation
+        ? deriveRequestStatus(
+          stones,
+          rows[0].request_scope,
+          true,
+          Boolean(rows[0].delivery_route)
+        )
+        : rows[0].status;
       let confirmationAudit = rows[0];
       if (firstConfirmation) {
         const { rows: confirmedRows } = await client.query(
@@ -952,7 +963,7 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
         );
         confirmationAudit = confirmedRows[0];
       }
-      const salesUserId = firstConfirmation
+      const salesUserId = firstConfirmation || viewTransition.firstView
         ? await requestingUserId(client, id)
         : null;
       const foundCount = stones.filter((stone) => stone.stone_found || stone.cert_found).length;
@@ -964,6 +975,7 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
         fulfillmentBranch: rows[0].fulfillment_branch || rows[0].branch,
         crossBranch: rows[0].cross_branch,
         firstConfirmation,
+        firstView: viewTransition.firstView,
         resolutionConfirmedAt: confirmationAudit.resolution_confirmed_at,
         resolutionConfirmedBy: confirmationAudit.resolution_confirmed_by,
         salesUserId,
@@ -971,15 +983,24 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
         notFoundCount,
       };
     });
-    const event = result.status === 'fulfilled'
-      ? 'request:completed'
-      : 'request:updated';
-    broadcast(result.branch, event, { requestId: id, status: result.status });
-    if (result.crossBranch) {
-      broadcast(result.fulfillmentBranch, event, {
-        requestId: id,
-        status: result.status,
-      });
+    if (result.firstConfirmation) {
+      const event = result.status === 'fulfilled'
+        ? 'request:completed'
+        : 'request:updated';
+      broadcast(result.branch, event, { requestId: id, status: result.status });
+      if (result.crossBranch) {
+        broadcast(result.fulfillmentBranch, event, {
+          requestId: id,
+          status: result.status,
+        });
+      }
+    }
+    if (result.firstView && result.salesUserId) {
+      emitToRoom(
+        userRoom(result.salesUserId),
+        'notification:request-viewed',
+        buildViewedNotification({ id, fulfillmentBranch: result.fulfillmentBranch })
+      );
     }
     if (result.firstConfirmation && result.salesUserId) {
       emitToRoom(

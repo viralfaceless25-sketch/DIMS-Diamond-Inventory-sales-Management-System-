@@ -40,6 +40,7 @@ export function NotificationHost({ role }: { role: Role }) {
             tabIndex={0}
             onClick={() => router.push(copy.href)}
             onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
               if (event.key === 'Enter' || event.key === ' ') router.push(copy.href);
             }}
             style={{ position: 'relative', cursor: 'pointer', borderRadius: 12, border: '1px solid rgb(111 231 210 / 0.38)', background: '#101816', color: '#f3f7f6', boxShadow: '0 16px 40px rgb(0 0 0 / 0.28)', padding: '14px 42px 14px 16px' }}

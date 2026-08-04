@@ -12,6 +12,11 @@ function assertInventoryRequestMutation({
   if (request.status === 'cancelled') {
     throw requestError('A cancelled request cannot be updated');
   }
+  if (request.resolution_confirmed
+    && mutationField
+    && !['returned', 'confirm_resolution'].includes(mutationField)) {
+    throw requestError('This request resolution is already confirmed and cannot be changed');
+  }
   if (mutationField === 'returned' && request.status !== 'fulfilled') {
     throw requestError('A return can be recorded only for a completed request');
   }
@@ -54,6 +59,27 @@ function assertInventoryRequestMutation({
   }
 }
 
+function assertResolutionFieldApplies(requestScope, field) {
+  if (!field || ['not_found', 'returned', 'resolution'].includes(field)) return;
+  if (requestScope === 'stone_only' && field === 'cert_found') {
+    throw requestError('This request does not request certificates');
+  }
+  if (requestScope === 'cert_only' && field === 'stone_found') {
+    throw requestError('This request does not request stones');
+  }
+}
+
+function assertInventoryRequestRead({ request, actorBranch }) {
+  const authorizedBranches = new Set([
+    request.branch,
+    request.fulfillment_branch || request.branch,
+    request.delivery_branch || request.branch,
+  ]);
+  if (!authorizedBranches.has(actorBranch)) {
+    throw requestError('You do not have access to this request', 403);
+  }
+}
+
 function assertInventoryRequestView({ request, actorBranch }) {
   const sourceBranch = request.fulfillment_branch || request.branch;
   if (actorBranch !== sourceBranch) {
@@ -61,4 +87,9 @@ function assertInventoryRequestView({ request, actorBranch }) {
   }
 }
 
-module.exports = { assertInventoryRequestMutation, assertInventoryRequestView };
+module.exports = {
+  assertInventoryRequestMutation,
+  assertInventoryRequestRead,
+  assertInventoryRequestView,
+  assertResolutionFieldApplies,
+};
