@@ -8,6 +8,7 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme, useCartBadge, useStockFilters, useQuickSearch } from '../repContext';
 import { ACCENT, AMBER, RED } from '@/lib/theme';
 import { fmtCarat, fmtMeasurements, sortStonesClient, extractBarcodes } from '@/lib/utils';
+import { createSingleFlight } from '@/lib/singleFlight';
 import {
   availabilityText,
   canAddToHomeBranch,
@@ -73,6 +74,9 @@ export default function RequestStonesPage() {
   const [recheckBusy, setRecheckBusy] = useState<string | null>(null);
   const [dropoffCompany, setDropoffCompany] = useState('');
   const [dropoffAddress, setDropoffAddress] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const mountedRef = useRef(true);
+  const submitFlight = useRef(createSingleFlight()).current;
 
   // Invoice upload state
   const [extracting, setExtracting] = useState(false);
@@ -109,6 +113,13 @@ export default function RequestStonesPage() {
     (stone) => !isExtractedRequestable(stone)
   );
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Drag-and-drop state. dragDepth is a counter (incremented on dragenter,
   // decremented on dragleave) so the overlay doesn't flicker when the cursor
   // passes over child elements.
@@ -116,7 +127,7 @@ export default function RequestStonesPage() {
   const dragDepth = useRef(0);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (mountedRef.current) setLoading(true);
     try {
       const [res, recheckRows] = await Promise.all([
         api.looseStock({
@@ -138,14 +149,18 @@ export default function RequestStonesPage() {
         }),
         api.myStockRechecks(),
       ]);
-      setStock(res.rows);
-      setTotal(res.total);
-      setRechecks(recheckRows);
+      if (mountedRef.current) {
+        setStock(res.rows);
+        setTotal(res.total);
+        setRechecks(recheckRows);
+      }
     } catch (error) {
-      setConfirmMsg(error instanceof Error ? error.message : 'Could not load stock.');
-      setConfirmError(true);
+      if (mountedRef.current) {
+        setConfirmMsg(error instanceof Error ? error.message : 'Could not load stock.');
+        setConfirmError(true);
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [page, search, colorFilter, clarityFilter, shapeFilter]);
 
@@ -289,7 +304,7 @@ export default function RequestStonesPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   async function submit(items: CartItem[], clearCartAfter: boolean, source: 'manual' | 'invoice_upload' = 'manual') {
     if (items.length === 0) return;
-    setConfirmError(false);
+    if (submitFlight.inFlight) return;
     if (!fulfillmentChoice) {
       setConfirmMsg('Choose how this request should be fulfilled.');
       setConfirmError(true);
@@ -300,25 +315,36 @@ export default function RequestStonesPage() {
       setConfirmError(true);
       return;
     }
-    try {
-      await api.submitRequest(
-        items.map((c) => ({ barcode: c.barcode, itemType: c.itemType })),
-        source,
-        {
-          requestScope,
-          dropoffCompany: dropoffCompany.trim(),
-          dropoffAddress: dropoffAddress.trim(),
-          fulfillmentChoice,
-          ...(fulfillmentChoice === 'bt_to_branch' ? { deliveryBranch } : {}),
+    await submitFlight.run(async () => {
+      if (mountedRef.current) {
+        setSubmitting(true);
+        setConfirmError(false);
+      }
+      try {
+        await api.submitRequest(
+          items.map((c) => ({ barcode: c.barcode, itemType: c.itemType })),
+          source,
+          {
+            requestScope,
+            dropoffCompany: dropoffCompany.trim(),
+            dropoffAddress: dropoffAddress.trim(),
+            fulfillmentChoice,
+            ...(fulfillmentChoice === 'bt_to_branch' ? { deliveryBranch } : {}),
+          }
+        );
+        if (!mountedRef.current) return;
+        setConfirmMsg(`Request for ${items.length} stone${items.length === 1 ? '' : 's'} sent to inventory.`);
+        if (clearCartAfter) setCart([]);
+        await load();
+      } catch (err) {
+        if (mountedRef.current) {
+          setConfirmMsg(err instanceof Error ? err.message : 'Could not send this request.');
+          setConfirmError(true);
         }
-      );
-      setConfirmMsg(`Request for ${items.length} stone${items.length === 1 ? '' : 's'} sent to inventory.`);
-      if (clearCartAfter) setCart([]);
-      await load();
-    } catch (err) {
-      setConfirmMsg(err instanceof Error ? err.message : 'Could not send this request.');
-      setConfirmError(true);
-    }
+      } finally {
+        if (mountedRef.current) setSubmitting(false);
+      }
+    });
   }
 
   async function addBarcodeToCart() {
@@ -851,10 +877,11 @@ export default function RequestStonesPage() {
               ? 'invoice_upload'
               : 'manual'
           )}
-          disabled={cart.length === 0 || !fulfillmentChoice}
-          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length && fulfillmentChoice ? ACCENT : t.chipBg, color: cart.length && fulfillmentChoice ? '#0a0e0d' : t.textFaint, font: "600 15px 'Inter'", cursor: cart.length && fulfillmentChoice ? 'pointer' : 'default' }}
+          disabled={submitting || cart.length === 0 || !fulfillmentChoice}
+          aria-busy={submitting}
+          style={{ marginTop: 14, padding: '11px', borderRadius: 9, border: 'none', background: cart.length && fulfillmentChoice && !submitting ? ACCENT : t.chipBg, color: cart.length && fulfillmentChoice && !submitting ? '#0a0e0d' : t.textFaint, font: "600 15px 'Inter'", cursor: cart.length && fulfillmentChoice && !submitting ? 'pointer' : 'default' }}
         >
-          Submit request to inventory
+          {submitting ? 'Submitting request…' : 'Submit request to inventory'}
         </button>
       </div>
     </div>
