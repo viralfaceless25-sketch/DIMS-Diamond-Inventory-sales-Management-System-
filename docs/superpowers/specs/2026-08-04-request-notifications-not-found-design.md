@@ -110,7 +110,10 @@ later return is not the same event as inventory failing to find a requested
 item.
 
 Each request row receives a dedicated `not_found` resolution field with audit
-metadata. Its UI label is `Not Found`.
+metadata. Its UI label is `Not Found`. It is a normal enabled checkbox whenever
+the authenticated inventory branch may resolve that active request; it must not
+inherit the permanently greyed or return-stage-only behavior of the old `RET`
+control.
 
 Resolution rules are:
 
@@ -170,6 +173,9 @@ Automated tests must prove:
 - reconnect and duplicate events do not produce duplicate visible popups
 - durable viewed/confirmed states survive refresh and missed popups
 - `Not Found` and STN/CERT remain mutually exclusive in both UI and API
+- `Not Found` is enabled for authorized active resolution, persists through the
+  backend, and remains selected after refresh
+- row-level and bulk `Not Found` controls both perform real backend mutations
 - partial STN/CERT results remain valid for combined requests
 - unresolved rows cannot be confirmed
 - `returned` data and the existing return workflow remain unchanged
