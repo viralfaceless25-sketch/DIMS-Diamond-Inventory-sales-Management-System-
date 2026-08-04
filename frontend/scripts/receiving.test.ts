@@ -9,6 +9,7 @@ import {
   defaultComponents,
   elsewhereMessage,
   receiptFormReady,
+  selectReceiptCandidate,
   shiftIsoDate,
 } from '../src/lib/receiving';
 
@@ -26,6 +27,20 @@ test('one matching request is selected automatically but multiple matches requir
     defaultCandidateId([{ requestStoneId: 12 }, { requestStoneId: 14 }]),
     null
   );
+});
+
+test('receipt candidate selection never falls back after a cancelled or mistyped choice', () => {
+  const candidates = [
+    { requestId: 12, requestStoneId: 101 },
+    { requestId: 14, requestStoneId: 102 },
+  ];
+
+  assert.equal(selectReceiptCandidate(candidates, null), null);
+  assert.equal(selectReceiptCandidate(candidates, ''), null);
+  assert.equal(selectReceiptCandidate(candidates, 'abc'), null);
+  assert.equal(selectReceiptCandidate(candidates, '99'), null);
+  assert.deepEqual(selectReceiptCandidate(candidates, '14'), candidates[1]);
+  assert.deepEqual(selectReceiptCandidate([candidates[0]], null), candidates[0]);
 });
 
 test('receipt form requires explicit Stone and Cert choices and at least one received component', () => {

@@ -23,6 +23,7 @@ import {
   defaultComponents,
   elsewhereMessage,
   receiptFormReady,
+  selectReceiptCandidate,
   shiftIsoDate,
 } from '@/lib/receiving';
 
@@ -469,13 +470,14 @@ export default function ReceivingPage() {
         setMessage(elsewhereMessage(result.elsewhere));
         return;
       }
-      let candidate = result.candidates[0];
-      if (result.candidates.length > 1) {
-        const choice = window.prompt(
-          `Enter the correct request number:\n${result.candidates.map((item) => `#${item.requestId} — ${item.rep.name}`).join('\n')}`,
-          String(candidate.requestId)
-        );
-        candidate = result.candidates.find((item) => String(item.requestId) === choice) || candidate;
+      const candidate = result.candidates.length === 1
+        ? result.candidates[0]
+        : selectReceiptCandidate(result.candidates, window.prompt(
+          `Enter the correct request number:\n${result.candidates.map((item) => `#${item.requestId} — ${item.rep.name}`).join('\n')}`
+        ));
+      if (!candidate) {
+        setMessage('No receipt was linked. Enter one of the listed request numbers and try again.');
+        return;
       }
       await api.linkReceipt(row.id, candidate.requestStoneId);
       setMessage(`${row.barcode} linked to request #${candidate.requestId} for ${candidate.rep.name}.`);

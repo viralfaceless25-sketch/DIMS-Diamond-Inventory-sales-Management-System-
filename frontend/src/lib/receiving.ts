@@ -23,6 +23,15 @@ export function defaultCandidateId(
   return candidates.length === 1 ? candidates[0].requestStoneId : null;
 }
 
+export function selectReceiptCandidate<T extends { requestId: number }>(
+  candidates: T[],
+  choice: string | null
+): T | null {
+  if (candidates.length === 1) return candidates[0];
+  if (choice === null) return null;
+  return candidates.find((candidate) => String(candidate.requestId) === choice) || null;
+}
+
 export function receiptFormReady(form: ReceiptFormState) {
   const barcode = form.barcode.trim();
   const explicitComponents =
