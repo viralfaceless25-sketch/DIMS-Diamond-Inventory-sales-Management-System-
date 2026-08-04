@@ -16,6 +16,18 @@ function canConfirmResolution(stones, requestScope) {
     && stones.every((stone) => isStoneDeliberatelyResolved(stone, requestScope));
 }
 
+async function assertRequestReadyForFinalDelivery(queryable, requestId, requestScope) {
+  const { rows } = await queryable.query(
+    'SELECT stone_found, cert_found, not_found FROM request_stones WHERE request_id = $1',
+    [requestId]
+  );
+  if (!canConfirmResolution(rows, requestScope)) {
+    const error = new Error('Resolve every item with STN, CERT, or Not Found before completing delivery');
+    error.status = 409;
+    throw error;
+  }
+}
+
 function deriveRequestStatus(
   stones,
   requestScope,
@@ -49,6 +61,7 @@ function deriveMutationState({
 }
 
 module.exports = {
+  assertRequestReadyForFinalDelivery,
   canConfirmResolution,
   canResolveRequest,
   deriveMutationState,

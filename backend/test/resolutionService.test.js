@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   canConfirmResolution,
+  assertRequestReadyForFinalDelivery,
   deriveMutationState,
   deriveRequestStatus,
   canResolveRequest,
@@ -81,4 +82,21 @@ test('scope-specific requests require their applicable found control', () => {
   assert.equal(canConfirmResolution([
     { stone_found: true, cert_found: false, not_found: false },
   ], 'cert_only'), false);
+});
+
+test('final delivery accepts explicit not-found rows after confirmation', async () => {
+  await assert.doesNotReject(() => assertRequestReadyForFinalDelivery({
+    query: async () => ({ rows: [
+      { stone_found: true, cert_found: false, not_found: false },
+      { stone_found: false, cert_found: false, not_found: true },
+    ] }),
+  }, 41, 'stone_and_cert'));
+});
+
+test('final delivery rejects untouched rows', async () => {
+  await assert.rejects(() => assertRequestReadyForFinalDelivery({
+    query: async () => ({ rows: [
+      { stone_found: false, cert_found: false, not_found: false },
+    ] }),
+  }, 41, 'stone_and_cert'), /Resolve every item/);
 });

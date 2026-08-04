@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const pool = require('../db/pool');
+const { assertRequestReadyForFinalDelivery } = require('../services/resolutionService');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { withTransaction } = require('../db/withRetry');
 const {
@@ -64,23 +65,6 @@ async function getTransfer(requestId, queryable = pool, { forUpdate = false } = 
 function assertDeliveryWorkflow(transfer) {
   if (!transfer || !transfer.fulfillment_branch || !transfer.delivery_route) {
     const error = new Error('This request does not use a delivery workflow'); error.status = 400; throw error;
-  }
-}
-
-async function assertRequestReadyForFinalDelivery(client, requestId, requestScope) {
-  const { rows } = await client.query(
-    'SELECT stone_found, cert_found FROM request_stones WHERE request_id = $1',
-    [requestId]
-  );
-  const complete = rows.length > 0 && rows.every((stone) => {
-    if (requestScope === 'stone_only') return stone.stone_found;
-    if (requestScope === 'cert_only') return stone.cert_found;
-    return stone.stone_found && stone.cert_found;
-  });
-  if (!complete) {
-    const error = new Error('Confirm every required stone and certificate before completing delivery');
-    error.status = 409;
-    throw error;
   }
 }
 
