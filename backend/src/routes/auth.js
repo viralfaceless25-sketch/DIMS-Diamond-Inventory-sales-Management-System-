@@ -5,11 +5,10 @@ const { requireAuth, signToken } = require('../middleware/auth');
 const { createRateLimit } = require('../middleware/rateLimit');
 const { passwordError, passwordExceedsBcryptByteLimit, hashPassword } = require('../utils/passwordSecurity');
 const { writeAudit } = require('../services/auditService');
+const { recordFailedLogin, resetSuccessfulLogin } = require('../services/loginLockoutService');
 
 const router = express.Router();
 const GENERIC_LOGIN_ERROR = 'Incorrect email or password';
-const MAX_FAILED_LOGINS = 5;
-const LOCKOUT_MINUTES = 15;
 
 const loginIpLimit = createRateLimit({ windowMs: 15 * 60_000, max: 40 });
 const loginEmailLimit = createRateLimit({
@@ -44,22 +43,17 @@ router.post('/login', loginIpLimit, loginEmailLimit, async (req, res, next) => {
 
     if (!ok) {
       if (user && user.is_active && !locked) {
-        const attempts = user.failed_login_attempts + 1;
-        await pool.query(
-          `UPDATE users SET failed_login_attempts = $2,
-             locked_until = CASE WHEN $2 >= $3 THEN now() + ($4 * interval '1 minute') ELSE NULL END,
-             updated_at = now() WHERE id = $1`,
-          [user.id, attempts, MAX_FAILED_LOGINS, LOCKOUT_MINUTES]
-        );
+        await recordFailedLogin(user.id, pool);
       }
       await writeAudit({ actorId: user?.id, action: 'auth.login_failed', targetType: 'user', targetId: user?.id, ip: req.ip, details: { email } });
       return res.status(401).json({ error: GENERIC_LOGIN_ERROR });
     }
 
-    await pool.query(
-      'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $1',
-      [user.id]
-    );
+    const reset = await resetSuccessfulLogin(user.id, pool);
+    if (!reset) {
+      await writeAudit({ actorId: user.id, action: 'auth.login_failed', targetType: 'user', targetId: user.id, ip: req.ip, details: { email } });
+      return res.status(401).json({ error: GENERIC_LOGIN_ERROR });
+    }
     const token = signToken({
       id: user.id,
       email: user.email,
