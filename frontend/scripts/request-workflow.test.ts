@@ -5,6 +5,7 @@ import {
   canAddToHomeBranch,
   canRequestAvailability,
   canResolveSourceItems,
+  canConfirmRequestResolution,
   defaultFulfillmentChoice,
   deliveryRouteForChoice,
   documentStepState,
@@ -14,6 +15,18 @@ import {
   hasDeliveryWorkflow,
   requestTypeForFulfillment,
 } from '../src/lib/requestWorkflow';
+
+test('explicit request resolution accepts not found and combined partial results', () => {
+  assert.equal(canConfirmRequestResolution([
+    { stone_found: false, cert_found: false, not_found: true },
+  ], 'stone_and_cert'), true);
+  assert.equal(canConfirmRequestResolution([
+    { stone_found: true, cert_found: false, not_found: false },
+  ], 'stone_and_cert'), true);
+  assert.equal(canConfirmRequestResolution([
+    { stone_found: false, cert_found: false, not_found: false },
+  ], 'stone_and_cert'), false);
+});
 
 test('only the supplying branch resolves internal-transfer items before shipment', () => {
   const request = {

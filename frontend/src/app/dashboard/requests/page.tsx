@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, RequestSummary, RequestDetail, RequestStats, RequestStone, StockRecheck } from '@/lib/api';
 import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '@/lib/ThemeProvider';
@@ -10,6 +11,7 @@ import { Check, StatusBadge, DuplicateBadge, Avatar, Copyable, NonCertBadge, Dro
 import { ACCENT, AMBER, avatarColor, RED } from '@/lib/theme';
 import { timeAgo, fmtCarat } from '@/lib/utils';
 import {
+  canConfirmRequestResolution,
   canResolveSourceItems,
   documentStepState,
   hasDeliveryWorkflow,
@@ -20,6 +22,7 @@ const STONE_TABLE_COLS = '58px 58px 58px minmax(170px,1.35fr) minmax(150px,1fr) 
 export default function RequestsPage() {
   const { theme: t } = useTheme();
   const { user } = useAuth();
+  const requestIdParam = useSearchParams().get('requestId');
   // Inventory staff are pinned to their own branch. The server enforces this too;
   // this keeps the visible queue and socket subscription on the room's branch.
   const [branch, setBranch] = useState(user?.branch || 'ALL');
@@ -35,6 +38,7 @@ export default function RequestsPage() {
   const [loading, setLoading] = useState(true);
   const scannerBufferRef = useRef({ value: '', lastKeyAt: 0 });
   const scannerTimerRef = useRef<number | null>(null);
+  const targetOpeningRef = useRef<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,10 +77,32 @@ export default function RequestsPage() {
       return;
     }
     const detail = await api.requestDetail(id);
-    setExpanded((p) => ({ ...p, [id]: detail }));
+    const viewed = await api.markRequestViewed(id);
+    setExpanded((p) => ({
+      ...p,
+      [id]: {
+        ...detail,
+        inventoryViewedAt: viewed.inventoryViewedAt,
+        inventoryViewedBy: viewed.inventoryViewedBy,
+      },
+    }));
   }
 
-  async function toggleStone(reqId: number, stone: RequestStone, field: 'stone_found' | 'cert_found' | 'returned') {
+  useEffect(() => {
+    const targetId = Number(requestIdParam);
+    if (!Number.isInteger(targetId)
+      || !requests.some((request) => request.id === targetId)
+      || expanded[targetId]
+      || targetOpeningRef.current.has(targetId)) return;
+    targetOpeningRef.current.add(targetId);
+    void toggleExpand(targetId)
+      .then(() => window.setTimeout(() => {
+        document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 0))
+      .finally(() => targetOpeningRef.current.delete(targetId));
+  }, [expanded, requestIdParam, requests]);
+
+  async function toggleStone(reqId: number, stone: RequestStone, field: 'stone_found' | 'cert_found' | 'not_found' | 'returned') {
     const res = await api.toggleStone(reqId, stone.id, field, !stone[field]);
     setExpanded((p) => {
       if (!p[reqId]) return p;
@@ -85,7 +111,7 @@ export default function RequestsPage() {
     load();
   }
 
-  async function checkAll(reqId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'returned') {
+  async function checkAll(reqId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'not_found' | 'returned') {
     const res = await api.checkAll(reqId, value, field);
     setExpanded((p) => {
       if (!p[reqId]) return p;
@@ -95,11 +121,11 @@ export default function RequestsPage() {
   }
 
   async function confirmResolution(requestId: number) {
-    if (!window.confirm('Confirm this request with the currently checked items. Unchecked items will be recorded as not found.')) return;
+    if (!window.confirm('Confirm this request with the explicit STN, CERT, and Not Found choices shown.')) return;
     try {
       const res = await api.confirmResolution(requestId);
       setExpanded((current) => current[requestId]
-        ? { ...current, [requestId]: { ...current[requestId], status: res.status, stones: res.stones, resolutionConfirmed: true } }
+        ? { ...current, [requestId]: { ...current[requestId], status: res.status, stones: res.stones, resolutionConfirmed: true, resolutionConfirmedAt: res.resolutionConfirmedAt, resolutionConfirmedBy: res.resolutionConfirmedBy } }
         : current);
       await load();
     } catch (err) {
@@ -336,11 +362,7 @@ export default function RequestsPage() {
 
   function isRequestChecked(r: RequestSummary, detail: RequestDetail | undefined) {
     if (!detail) return false;
-    return detail.stones.every((s) => {
-      if (r.requestScope === 'stone_only') return s.stone_found;
-      if (r.requestScope === 'cert_only') return s.cert_found;
-      return s.stone_found && s.cert_found;
-    });
+    return canConfirmRequestResolution(detail.stones, r.requestScope);
   }
 
   function canResolveItems(r: RequestSummary) {
@@ -351,18 +373,6 @@ export default function RequestsPage() {
       transferStatus: r.transferStatus,
       crossBranch: r.crossBranch,
     }, user?.branch);
-  }
-
-  function canMarkReturned(r: RequestSummary) {
-    if (r.status !== 'fulfilled') return false;
-    if (!r.crossBranch) return user?.branch === r.fulfillmentBranch;
-    if (r.deliveryRoute === 'internal_transfer') {
-      return user?.branch === r.deliveryBranch
-        && r.transferStatus === 'handed_to_rep';
-    }
-    return user?.branch === r.fulfillmentBranch
-      && ['shipped_to_customer', 'dropped_off_to_customer']
-        .includes(r.transferStatus || '');
   }
 
   const statCards = [
@@ -460,16 +470,20 @@ export default function RequestsPage() {
                       {group.requests.map((r) => {
                         const detail = expanded[r.id];
                         const allChecked = isRequestChecked(r, detail);
+                        const canConfirm = canResolveItems(r)
+                          && Boolean(detail)
+                          && allChecked
+                          && !Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed);
                         const documents = requestDocumentState(r);
                         const strictDocuments = Number(r.workflowVersion || 1) >= 2;
                         return (
-                          <div key={r.id} style={{ background: t.bgCard, border: `1px solid ${requestTypeStyle(r.requestType).border}`, borderRadius: 12, overflow: 'hidden' }}>
+                          <div id={`request-${r.id}`} key={r.id} style={{ background: t.bgCard, border: `1px solid ${requestTypeStyle(r.requestType).border}`, borderRadius: 12, overflow: 'hidden' }}>
                             <div onClick={() => toggleExpand(r.id)} style={{ display: 'grid', gridTemplateColumns: '92px minmax(0,1fr) 70px 90px 80px minmax(0,190px)', alignItems: 'center', gap: 12, padding: '13px 16px', cursor: 'pointer' }}>
                               <button
                                 onClick={(event) => { event.stopPropagation(); confirmResolution(r.id); }}
-                                disabled={!canResolveItems(r) || Boolean(detail?.resolutionConfirmed || r.resolutionConfirmed)}
+                                disabled={!canConfirm}
                                 title="Confirm the request with the items currently checked"
-                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.bgSide : ACCENT, color: detail?.resolutionConfirmed || r.resolutionConfirmed ? t.textFaint : '#0a0e0d', cursor: !canResolveItems(r) || detail?.resolutionConfirmed || r.resolutionConfirmed ? 'not-allowed' : 'pointer', font: "800 13px 'Inter'" }}
+                                style={{ padding: '8px 9px', borderRadius: 7, border: 'none', background: canConfirm ? ACCENT : t.bgSide, color: canConfirm ? '#0a0e0d' : t.textFaint, cursor: canConfirm ? 'pointer' : 'not-allowed', font: "800 13px 'Inter'" }}
                               >
                                 {detail?.resolutionConfirmed || r.resolutionConfirmed ? 'Confirmed' : 'Confirm'}
                               </button>
@@ -579,14 +593,14 @@ export default function RequestsPage() {
                                 <div style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '12px 18px', font: "800 13.5px 'Inter'", color: t.textFainter, letterSpacing: '0.04em' }}>
                                   <div title="Mark every requested stone found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>STN</span><Check checked={detail.stones.every((stone) => stone.stone_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.stone_found), 'stone_found')} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} size={18} /></div>
                                   <div title="Mark every requested certificate found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>CERT</span><Check checked={detail.stones.every((stone) => stone.cert_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.cert_found), 'cert_found')} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} size={18} /></div>
-                                  <div title="Mark every requested item returned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>RET</span><Check checked={detail.stones.every((stone) => stone.returned)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.returned), 'returned')} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" size={18} /></div>
+                                  <div title="Mark every requested item not found" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}><span>Not Found</span><Check checked={detail.stones.every((stone) => stone.not_found)} onClick={() => checkAll(r.id, !detail.stones.every((stone) => stone.not_found), 'not_found')} disabled={!canResolveItems(r)} accent="oklch(68% 0.18 25)" size={18} /></div>
                                   <div>STOCK #</div><div>SHAPE</div><div>CARAT</div><div>COL</div><div>CLTY</div><div>CERT #</div>
                                 </div>
                                 {detail.stones.map((s) => (
                                   <div key={s.id} style={{ display: 'grid', gridTemplateColumns: STONE_TABLE_COLS, gap: 12, padding: '13px 18px', alignItems: 'center', minHeight: 52, borderTop: `1px solid ${t.rowBorder}`, background: s.duplicate ? 'oklch(70% 0.17 30 / 0.08)' : 'transparent' }}>
                                     <Check checked={s.stone_found} onClick={() => toggleStone(r.id, s, 'stone_found')} size={24} disabled={r.requestScope === 'cert_only' || !canResolveItems(r)} />
                                     <Check checked={s.cert_found} onClick={() => toggleStone(r.id, s, 'cert_found')} size={24} disabled={r.requestScope === 'stone_only' || !canResolveItems(r)} />
-                                    <Check checked={s.returned} onClick={() => toggleStone(r.id, s, 'returned')} size={24} disabled={!canMarkReturned(r)} accent="oklch(75% 0.13 250)" />
+                                    <Check checked={s.not_found} onClick={() => toggleStone(r.id, s, 'not_found')} size={24} disabled={!canResolveItems(r)} accent="oklch(68% 0.18 25)" />
                                     <div style={{ font: "700 16px Arial, sans-serif", color: t.text, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                       <Copyable value={s.barcode} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                                       {s.duplicate && <span title={`Also held by: ${s.duplicateWith?.join(', ')}`} style={{ color: RED, flex: 'none' }}>!</span>}

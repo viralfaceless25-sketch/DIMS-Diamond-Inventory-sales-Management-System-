@@ -8,6 +8,7 @@ import { useRequireRole, useAuth } from '@/lib/auth';
 import { THEMES, ThemeName, ACCENT, COLOR_ORDER, CLARITY_ORDER, initialsOf } from '@/lib/theme';
 import { api } from '@/lib/api';
 import { MiniDiamondSearch } from '@/components/MiniDiamondSearch';
+import { NotificationHost } from '@/components/NotificationHost';
 import { ThemeContext, CartContext, StockFilterContext, QuickSearchContext } from './repContext';
 
 // Theme context (light/dark) — Sales Rep app only, per the prototype.
@@ -73,6 +74,7 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
         <StockFilterContext.Provider value={{ colors, setColors, clarities, setClarities, shapes, setShapes, shapeOptions }}>
         <QuickSearchContext.Provider value={{ term: quickSearchTerm, setTerm: setQuickSearchTerm }}>
         <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
+          <NotificationHost role="sales_rep" />
           {/* Sidebar itself stays overflow:visible (so the mini-search and
               shape-picker popovers are never clipped) — only the nav/filter
               region below scrolls internally when it's taller than the

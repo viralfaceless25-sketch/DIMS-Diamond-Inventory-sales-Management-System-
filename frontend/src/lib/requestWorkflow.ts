@@ -34,6 +34,24 @@ export interface AvailabilityLike {
   repName?: string | null;
 }
 
+export type ResolutionStoneLike = {
+  stone_found: boolean;
+  cert_found: boolean;
+  not_found: boolean;
+};
+
+export function canConfirmRequestResolution(
+  stones: ResolutionStoneLike[],
+  requestScope: 'stone_and_cert' | 'stone_only' | 'cert_only'
+) {
+  return stones.length > 0 && stones.every((stone) => {
+    if (stone.not_found) return true;
+    if (requestScope === 'stone_only') return stone.stone_found;
+    if (requestScope === 'cert_only') return stone.cert_found;
+    return stone.stone_found || stone.cert_found;
+  });
+}
+
 // On Hold / On Memo / In Transit are shown so the rep still sees the
 // snapshot's note, but no longer block adding the stone — see
 // isRequestableStockStatus on the backend for why. 'requested'/'conflict'

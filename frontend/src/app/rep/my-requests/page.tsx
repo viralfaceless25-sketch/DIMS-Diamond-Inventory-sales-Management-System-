@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, MyRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranchSocket } from '@/lib/socket';
@@ -27,6 +28,7 @@ const actionButton = {
 
 export default function MyRequestsPage() {
   const { user } = useAuth();
+  const requestIdParam = useSearchParams().get('requestId');
   const { theme: t } = useTheme();
   const [requests, setRequests] = useState<MyRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,15 @@ export default function MyRequestsPage() {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    const targetId = Number(requestIdParam);
+    if (!Number.isInteger(targetId)
+      || !requests.some((request) => request.id === targetId)) return;
+    setOpen((current) => ({ ...current, [targetId]: true }));
+    window.setTimeout(() => {
+      document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  }, [requestIdParam, requests]);
   useBranchSocket(user?.branch || 'NY', () => load());
 
   function showMessage(text: string, error = false) {
@@ -216,7 +227,7 @@ export default function MyRequestsPage() {
                 && request.status !== 'cancelled';
 
               return (
-                <div key={request.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                <div id={`request-${request.id}`} key={request.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, overflow: 'hidden' }}>
                   <div
                     onClick={() => setOpen((current) => ({
                       ...current,
@@ -235,6 +246,20 @@ export default function MyRequestsPage() {
                         <div style={{ display: 'flex', gap: 7, marginTop: 4, flexWrap: 'wrap' }}>
                           {pendingPaperwork && <span style={{ font: "800 11.5px 'Inter'", color: AMBER }}>STEP 1 PAPERWORK</span>}
                           {pendingLabel && <span style={{ font: "800 11.5px 'Inter'", color: AMBER }}>STEP 2 LABEL</span>}
+                        </div>
+                      )}
+                      {(request.inventoryViewedAt || request.resolutionConfirmed) && (
+                        <div style={{ display: 'flex', gap: 9, marginTop: 5, flexWrap: 'wrap' }}>
+                          {request.inventoryViewedAt && (
+                            <span style={{ font: "700 11.5px 'Inter'", color: GREEN }}>
+                              Viewed by inventory · {timeAgo(request.inventoryViewedAt)}
+                            </span>
+                          )}
+                          {request.resolutionConfirmed && (
+                            <span style={{ font: "700 11.5px 'Inter'", color: GREEN }}>
+                              Confirmed by inventory{request.resolutionConfirmedAt ? ` · ${timeAgo(request.resolutionConfirmedAt)}` : ''}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

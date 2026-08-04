@@ -48,3 +48,21 @@ test('invoice review groups requestable items by their stored home branch', () =
   assert.match(page, /Load \{count\} from \{invoiceBranch\} into cart/);
   assert.doesNotMatch(page, /sendReviewedExtracted/);
 });
+
+test('request shells mount temporary notifications and inventory uses active Not Found controls', () => {
+  const dashboardLayout = read('src/app/dashboard/layout.tsx');
+  const repLayout = read('src/app/rep/layout.tsx');
+  const requests = read('src/app/dashboard/requests/page.tsx');
+  const myRequests = read('src/app/rep/my-requests/page.tsx');
+
+  assert.match(dashboardLayout, /<NotificationHost role="inventory"/);
+  assert.match(repLayout, /<NotificationHost role="sales_rep"/);
+  assert.match(requests, /<span>Not Found<\/span>/);
+  assert.doesNotMatch(requests, /<span>RET<\/span>/);
+  assert.match(requests, /stone\.not_found/);
+  assert.match(requests, /api\.markRequestViewed/);
+  assert.match(requests, /requestId.*useSearchParams|useSearchParams.*requestId/s);
+  assert.match(myRequests, /Viewed by inventory/);
+  assert.match(myRequests, /Confirmed by inventory/);
+  assert.match(myRequests, /requestId.*useSearchParams|useSearchParams.*requestId/s);
+});

@@ -7,6 +7,7 @@ import { useRequireRole, useAuth } from '@/lib/auth';
 import { ThemeProvider, useTheme } from '@/lib/ThemeProvider';
 import { ACCENT, repColor } from '@/lib/theme';
 import { api } from '@/lib/api';
+import { NotificationHost } from '@/components/NotificationHost';
 
 const NAV = [
   { href: '/dashboard/requests', label: 'Requests', icon: 'M4 4h16v12H8l-4 4V4z' },
@@ -36,6 +37,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
+      <NotificationHost role="inventory" />
       {/* Sidebar — scrolls on its own (overflowY + minHeight:0) so a tall
           nav/rep-roster at higher zoom never drags the main panel along
           with it or leaves blank space where the two got out of sync. */}

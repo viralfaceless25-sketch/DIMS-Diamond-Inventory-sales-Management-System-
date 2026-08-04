@@ -123,6 +123,9 @@ export interface RequestStone {
   item_type: 'loose' | 'jewelry';
   stone_found: boolean;
   cert_found: boolean;
+  not_found: boolean;
+  not_found_at?: string | null;
+  not_found_by?: number | null;
   returned: boolean;
   shape: string | null;
   carat: number | string | null;
@@ -160,7 +163,14 @@ export interface ErpTransferFields {
   cancellationReason?: string | null;
 }
 
-export interface RequestSummary extends ErpTransferFields {
+export interface RequestLifecycleFields {
+  inventoryViewedAt?: string | null;
+  inventoryViewedBy?: number | null;
+  resolutionConfirmedAt?: string | null;
+  resolutionConfirmedBy?: number | null;
+}
+
+export interface RequestSummary extends ErpTransferFields, RequestLifecycleFields {
   id: number;
   branch: string;
   fulfillmentBranch: string;
@@ -186,7 +196,7 @@ export interface RequestSummary extends ErpTransferFields {
   hasDuplicate: boolean;
 }
 
-export interface RequestDetail extends ErpTransferFields {
+export interface RequestDetail extends ErpTransferFields, RequestLifecycleFields {
   id: number;
   branch: string;
   fulfillmentBranch: string;
@@ -209,7 +219,7 @@ export interface RequestDetail extends ErpTransferFields {
   stones: RequestStone[];
 }
 
-export interface MyRequest extends Partial<ErpTransferFields> {
+export interface MyRequest extends Partial<ErpTransferFields>, RequestLifecycleFields {
   id: number;
   branch: string;
   fulfillmentBranch?: string;
@@ -667,18 +677,23 @@ export const api = {
     return request<RequestSummary[]>(`/api/requests?${q.toString()}`);
   },
   requestDetail: (id: number) => request<RequestDetail>(`/api/requests/${id}`),
+  markRequestViewed: (id: number) =>
+    request<{ id: number; inventoryViewedAt: string | null; inventoryViewedBy: number | null; firstView: boolean }>(
+      `/api/requests/${id}/viewed`,
+      { method: 'POST' }
+    ),
   toggleStone: (requestId: number, stoneId: number, field: string, value: boolean) =>
     request<{ id: number; status: BatchStatus; stones: RequestStone[] }>(
       `/api/requests/${requestId}/stones/${stoneId}`,
       { method: 'PATCH', body: JSON.stringify({ field, value }) }
     ),
-  checkAll: (requestId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'returned') =>
+  checkAll: (requestId: number, value: boolean, field?: 'stone_found' | 'cert_found' | 'not_found' | 'returned') =>
     request<{ id: number; status: BatchStatus; stones: RequestStone[] }>(
       `/api/requests/${requestId}/check-all`,
       { method: 'PATCH', body: JSON.stringify({ value, ...(field ? { field } : {}) }) }
     ),
   confirmResolution: (requestId: number) =>
-    request<{ id: number; status: BatchStatus; stones: RequestStone[]; resolutionConfirmed: true }>(
+    request<{ id: number; status: BatchStatus; stones: RequestStone[]; resolutionConfirmed: true; resolutionConfirmedAt: string; resolutionConfirmedBy: number }>(
       `/api/requests/${requestId}/confirm-resolution`,
       { method: 'PATCH' }
     ),
