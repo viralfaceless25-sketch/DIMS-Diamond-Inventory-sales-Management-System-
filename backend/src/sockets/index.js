@@ -38,6 +38,17 @@ function resolveRoom(user, requestedBranch) {
   return null;
 }
 
+function automaticRooms(user) {
+  const userId = Number(user?.id);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return [];
+  const rooms = [`user:${userId}`];
+  const branch = String(user.branch || '').trim().toUpperCase();
+  if (user.role === 'inventory' && /^[A-Z]{2,4}$/.test(branch)) {
+    rooms.push(`inventory:${branch}`);
+  }
+  return rooms;
+}
+
 function initSockets(httpServer, corsOrigin) {
   io = new Server(httpServer, {
     cors: { origin: corsOrigin || '*', methods: ['GET', 'POST', 'PATCH'] },
@@ -53,6 +64,7 @@ function initSockets(httpServer, corsOrigin) {
   });
 
   io.on('connection', (socket) => {
+    for (const room of automaticRooms(socket.data.user)) socket.join(room);
     // Clients (dashboard or sales-rep app) join a branch room so we can scope
     // broadcasts, e.g. socket.emit joining branch 'NY' only gets NY events.
     // 'ALL' is used by the dashboard when no branch filter is active.
@@ -87,4 +99,17 @@ function broadcast(branch, event, payload) {
   io.to(`branch:${branch}`).to('branch:ALL').emit(event, payload);
 }
 
-module.exports = { initSockets, getIo, broadcast, authenticateToken, resolveRoom };
+function emitToRoom(room, event, payload) {
+  if (!io || !room) return;
+  io.to(room).emit(event, payload);
+}
+
+module.exports = {
+  initSockets,
+  getIo,
+  broadcast,
+  emitToRoom,
+  authenticateToken,
+  automaticRooms,
+  resolveRoom,
+};

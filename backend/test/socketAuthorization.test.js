@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 process.env.JWT_SECRET ||= 'test-only-jwt-secret-with-at-least-32-characters';
-const { authenticateToken, resolveRoom } = require('../src/sockets');
+const { authenticateToken, automaticRooms, resolveRoom } = require('../src/sockets');
 
 test('socket authentication accepts only an active current token', async () => {
   const user = await authenticateToken('valid-token', {
@@ -24,4 +24,16 @@ test('sales reps can join only their own branch while inventory can watch its wo
   assert.equal(resolveRoom({ role: 'inventory', branch: 'NY' }, 'ALL'), 'branch:ALL');
   assert.equal(resolveRoom({ role: 'inventory', branch: 'NY' }, 'LA'), 'branch:LA');
   assert.equal(resolveRoom({ role: 'inventory', branch: 'NY' }, '../ALL'), null);
+});
+
+test('targeted rooms are derived only from authenticated identity', () => {
+  assert.deepEqual(
+    automaticRooms({ id: 7, role: 'inventory', branch: 'NY' }),
+    ['user:7', 'inventory:NY']
+  );
+  assert.deepEqual(
+    automaticRooms({ id: 8, role: 'sales_rep', branch: 'NY' }),
+    ['user:8']
+  );
+  assert.deepEqual(automaticRooms({ id: 'bad', role: 'inventory', branch: '../ALL' }), []);
 });
