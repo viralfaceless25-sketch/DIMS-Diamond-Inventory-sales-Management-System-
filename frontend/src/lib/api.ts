@@ -563,9 +563,22 @@ async function request<T>(
   }
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      const message = res.ok
+        ? `Response format error (HTTP ${res.status})`
+        : `Request failed (HTTP ${res.status})`;
+      throw new ApiError(res.status, message);
+    }
+  }
   if (!res.ok) {
-    throw new ApiError(res.status, data?.error || 'Request failed');
+    const message = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
+      ? data.error
+      : `Request failed (HTTP ${res.status})`;
+    throw new ApiError(res.status, message);
   }
   return data as T;
 }

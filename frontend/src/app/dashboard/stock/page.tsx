@@ -40,6 +40,7 @@ export default function StockPage() {
   const [statuses, setStatuses] = useState<string[]>([]);
   const [certStatuses, setCertStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
   const [uploadMsg, setUploadMsg] = useState('');
   const [uploadErr, setUploadErr] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -47,6 +48,7 @@ export default function StockPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadErr('');
     const q = {
       branch,
       page,
@@ -75,16 +77,22 @@ export default function StockPage() {
       requestableOnly: true,
       sort: itemType === 'loose' ? ('pick' as const) : undefined,
     };
-    if (itemType === 'loose') {
-      const res = await api.looseStock(q);
-      setLoose(res.rows);
-      setTotal(res.total);
-    } else {
-      const res = await api.jewelryStock(q);
-      setJewelry(res.rows);
-      setTotal(res.total);
+    try {
+      if (itemType === 'loose') {
+        const res = await api.looseStock(q);
+        setLoose(res.rows);
+        setTotal(res.total);
+      } else {
+        const res = await api.jewelryStock(q);
+        setJewelry(res.rows);
+        setTotal(res.total);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Please try again.';
+      setLoadErr(`Unable to load stock. ${message}`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [branch, itemType, page, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses, certStatuses]);
 
   useEffect(() => {
@@ -279,6 +287,13 @@ export default function StockPage() {
           </div>
           <Pager page={page} totalPages={totalPages} onPage={setPage} t={t} />
         </div>
+
+        {loadErr && (
+          <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, border: `1px solid ${RED}`, borderRadius: 8, color: RED }}>
+            <span>{loadErr}</span>
+            <button onClick={load} style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${RED}`, background: 'transparent', color: RED, font: "600 13px 'Inter'", cursor: 'pointer' }}>Retry</button>
+          </div>
+        )}
 
         {itemType === 'loose' ? <LooseTable rows={loose} t={t} loading={loading} /> : <JewelryTable rows={jewelry} t={t} loading={loading} />}
 
