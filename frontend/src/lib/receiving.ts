@@ -8,6 +8,15 @@ export interface ReceiptFormState {
   receivingBranch: string;
 }
 
+export function canCorrectReceipt(receipt: {
+  matchState: 'matched' | 'unmatched';
+  transferStatus: string | null;
+  canCorrect?: boolean;
+}) {
+  return receipt.canCorrect !== false
+    && !(receipt.matchState === 'matched' && receipt.transferStatus === 'handed_to_rep');
+}
+
 export function defaultCandidateId(
   candidates: { requestStoneId: number }[]
 ) {

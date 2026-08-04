@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   assertHandoffAllowed,
+  assertReceiptCorrectionAllowed,
   branchLocalDate,
   duplicateComponents,
   expectedComponents,
@@ -188,6 +189,15 @@ test('handoff requires a complete internal shipment at its destination branch', 
     receivingBranch: 'NY',
     rollup: { complete: false },
   }), /Stone and certificate arrivals/);
+});
+
+test('receipt correction guard leaves pre-terminal matched requests correctable', () => {
+  assert.doesNotThrow(() => assertReceiptCorrectionAllowed({ transfer_status: 'ready_for_rep' }));
+  assert.doesNotThrow(() => assertReceiptCorrectionAllowed({ transfer_status: 'received_at_destination' }));
+  assert.throws(
+    () => assertReceiptCorrectionAllowed({ transfer_status: 'handed_to_rep' }),
+    (error) => error.status === 409 && error.message === 'This shipment was already handed to the sales rep'
+  );
 });
 
 test('receipt status labels support daily inventory triage', () => {

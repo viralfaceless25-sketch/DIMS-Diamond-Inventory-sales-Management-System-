@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const {
   VALID_BRANCHES,
   assertHandoffAllowed,
+  assertReceiptCorrectionAllowed,
   branchLocalDate,
   duplicateComponents,
   nextPhysicalStatus,
@@ -404,6 +405,8 @@ async function fetchHistory(queryable, {
       canHandoff: row.match_state === 'matched'
         && requestComplete
         && row.transfer_status !== 'handed_to_rep',
+      canCorrect: row.match_state !== 'matched'
+        || row.transfer_status !== 'handed_to_rep',
       status: receiptStatus,
       rep: row.rep_id == null
         ? null
@@ -778,6 +781,15 @@ router.patch('/:id', async (req, res, next) => {
       });
       if (receipt.match_state === 'matched' && input.sourceBranch !== receipt.source_branch) {
         throw routeError('A matched receipt source branch comes from its request', 409);
+      }
+      if (receipt.match_state === 'matched') {
+        if (!receipt.request_id) throw routeError('Matched receipt request is missing', 409);
+        const { request } = await loadRequestAndRollup(
+          client,
+          Number(receipt.request_id),
+          { forUpdate: true }
+        );
+        assertReceiptCorrectionAllowed(request);
       }
       const existing = await existingReceiptsForDuplicate(client, {
         receivingBranch,

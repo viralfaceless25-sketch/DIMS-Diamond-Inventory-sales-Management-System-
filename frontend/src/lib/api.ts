@@ -507,6 +507,7 @@ export interface ShipmentReceipt {
   requestComplete: boolean;
   handedOff: boolean;
   canHandoff: boolean;
+  canCorrect: boolean;
   status: ReceiptStatus;
   rep: { id: number; name: string } | null;
 }

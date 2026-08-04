@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   batchReadyCount,
   branchToday,
+  canCorrectReceipt,
   componentSummary,
   defaultCandidateId,
   defaultComponents,
@@ -10,6 +11,13 @@ import {
   receiptFormReady,
   shiftIsoDate,
 } from '../src/lib/receiving';
+
+test('receipt correction affordance stays disabled for terminal matched shipments', () => {
+  assert.equal(canCorrectReceipt({ matchState: 'matched', transferStatus: 'handed_to_rep' }), false);
+  assert.equal(canCorrectReceipt({ matchState: 'matched', transferStatus: 'ready_for_rep' }), true);
+  assert.equal(canCorrectReceipt({ matchState: 'unmatched', transferStatus: null, canCorrect: false }), false);
+  assert.equal(canCorrectReceipt({ matchState: 'unmatched', transferStatus: null }), true);
+});
 
 test('one matching request is selected automatically but multiple matches require inventory choice', () => {
   assert.equal(defaultCandidateId([]), null);

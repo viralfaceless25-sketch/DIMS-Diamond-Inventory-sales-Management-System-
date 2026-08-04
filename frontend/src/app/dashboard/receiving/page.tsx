@@ -17,6 +17,7 @@ import { ACCENT, AMBER, GREEN, RED } from '@/lib/theme';
 import { extractBarcodes } from '@/lib/utils';
 import {
   branchToday,
+  canCorrectReceipt,
   componentSummary,
   defaultCandidateId,
   defaultComponents,
@@ -724,7 +725,7 @@ export default function ReceivingPage() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         {row.canHandoff && <button onClick={() => handoff(row)} style={{ ...inputStyle, cursor: 'pointer', padding: '6px 9px', color: GREEN }}>Hand to rep</button>}
                         {row.matchState === 'unmatched' && <button onClick={() => matchReceipt(row)} style={{ ...inputStyle, cursor: 'pointer', padding: '6px 9px', color: ACCENT }}>Match</button>}
-                        <button onClick={() => beginCorrection(row)} style={{ ...inputStyle, cursor: 'pointer', padding: '6px 9px' }}>Correct</button>
+                        {canCorrectReceipt(row) && <button onClick={() => beginCorrection(row)} style={{ ...inputStyle, cursor: 'pointer', padding: '6px 9px' }}>Correct</button>}
                       </div>
                     </td>
                   </tr>

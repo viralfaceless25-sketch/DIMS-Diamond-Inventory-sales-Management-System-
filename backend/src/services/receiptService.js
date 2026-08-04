@@ -167,6 +167,12 @@ function assertHandoffAllowed({ request, receivingBranch, rollup }) {
   }
 }
 
+function assertReceiptCorrectionAllowed(request) {
+  if (request?.transfer_status === 'handed_to_rep') {
+    throw receiptError('This shipment was already handed to the sales rep', 409);
+  }
+}
+
 function receiptStatusLabel({ matchState, requestComplete, transferStatus }) {
   if (matchState !== 'matched') return 'Needs review';
   if (transferStatus === 'handed_to_rep') return 'Handed over';
@@ -178,6 +184,7 @@ module.exports = {
   BRANCH_TIME_ZONES,
   VALID_BRANCHES,
   assertHandoffAllowed,
+  assertReceiptCorrectionAllowed,
   branchLocalDate,
   duplicateComponents,
   expectedComponents,
