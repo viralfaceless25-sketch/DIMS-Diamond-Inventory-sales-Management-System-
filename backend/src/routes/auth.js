@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const pool = require('../db/pool');
 const { requireAuth, signToken } = require('../middleware/auth');
 const { createRateLimit } = require('../middleware/rateLimit');
-const { passwordError, hashPassword } = require('../utils/passwordSecurity');
+const { passwordError, passwordExceedsBcryptByteLimit, hashPassword } = require('../utils/passwordSecurity');
 const { writeAudit } = require('../services/auditService');
 
 const router = express.Router();
@@ -22,8 +22,11 @@ router.post('/login', loginIpLimit, loginEmailLimit, async (req, res, next) => {
   try {
     const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!email || !password || email.length > 254 || password.length > 256) {
+    if (!email || !password || email.length > 254) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+    if (passwordExceedsBcryptByteLimit(password)) {
+      return res.status(401).json({ error: GENERIC_LOGIN_ERROR });
     }
 
     const { rows } = await pool.query(
