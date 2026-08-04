@@ -16,6 +16,7 @@ const {
 const {
   authorizeLockedRequestStock,
   normalizeRequestedStones,
+  prepareReturnedReopen,
 } = require('../services/requestStockService');
 const {
   consumeAvailabilityAuthorizations,
@@ -216,7 +217,7 @@ async function applyStoneMutationAndRecompute(
     });
     assertResolutionFieldApplies(lockRows[0].request_scope, mutationField);
 
-    await mutateFn(client);
+    await mutateFn(client, lockRows[0]);
 
     const stones = await fetchStonesForRequest(requestId, client);
     const mutationState = deriveMutationState({
@@ -747,9 +748,28 @@ router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, 
 
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
-    const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client) => {
+    const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client, request) => {
       let changed = false;
       if (field === 'returned') {
+        if (!value) {
+          const { rows: targetRows } = await client.query(
+            `SELECT id, barcode, item_type, returned
+             FROM request_stones
+             WHERE id = $1 AND request_id = $2
+             FOR UPDATE`,
+            [stoneId, id]
+          );
+          await prepareReturnedReopen(
+            client,
+            targetRows.map((stone) => ({
+              barcode: stone.barcode,
+              itemType: stone.item_type,
+              returned: stone.returned,
+            })),
+            request.fulfillment_branch || request.branch,
+            id
+          );
+        }
         const { rows: changedRows } = await client.query(
           `UPDATE request_stones
            SET returned = $1, returned_at = CASE WHEN $1 THEN now() ELSE NULL END
@@ -831,17 +851,29 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
 
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
-    const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client) => {
+    const { stones, status, branch, fulfillmentBranch, crossBranch } = await applyStoneMutationAndRecompute(id, actorBranch, async (client, request) => {
       const { rows: scopeRows } = await client.query('SELECT request_scope FROM requests WHERE id = $1', [id]);
       const requestScope = scopeRows[0]?.request_scope || 'stone_and_cert';
       const { rows: beforeRows } = await client.query(
-        `SELECT id, stone_found, cert_found, not_found, returned,
+        `SELECT id, barcode, item_type, stone_found, cert_found, not_found, returned,
                 stone_found_at, cert_found_at, not_found_at, not_found_by
          FROM request_stones WHERE request_id = $1`,
         [id]
       );
 
       if (field === 'returned') {
+        if (!value) {
+          await prepareReturnedReopen(
+            client,
+            beforeRows.map((stone) => ({
+              barcode: stone.barcode,
+              itemType: stone.item_type,
+              returned: stone.returned,
+            })),
+            request.fulfillment_branch || request.branch,
+            id
+          );
+        }
         await client.query(
           `UPDATE request_stones
            SET returned = $1, returned_at = CASE WHEN $1 THEN now() ELSE NULL END

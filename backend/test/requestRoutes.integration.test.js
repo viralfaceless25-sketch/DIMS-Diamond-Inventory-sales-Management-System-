@@ -118,6 +118,131 @@ test('row mutation rejects edits after resolution confirmation', async (t) => {
   assert.match(res.body.error, /already confirmed/);
 });
 
+test('check-all returned reopen rejects a competing active holder after locking stock', async (t) => {
+  const originalQuery = pool.query;
+  const originalConnect = pool.connect;
+  t.after(() => { pool.query = originalQuery; pool.connect = originalConnect; });
+  pool.query = async () => ({ rows: [{ branch: 'LA' }] });
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('FROM requests WHERE id = $1 FOR UPDATE')) {
+        return { rows: [{
+          branch: 'LA', fulfillment_branch: 'LA', delivery_branch: 'LA',
+          cross_branch: false, delivery_route: null, transfer_status: null,
+          request_scope: 'stone_and_cert', status: 'fulfilled', resolution_confirmed: false,
+        }] };
+      }
+      if (sql === 'SELECT request_scope FROM requests WHERE id = $1') {
+        return { rows: [{ request_scope: 'stone_and_cert' }] };
+      }
+      if (sql.includes('FROM request_stones WHERE request_id = $1')) {
+        return { rows: [{
+          id: 9, barcode: 'LA-100', item_type: 'loose', returned: true,
+          stone_found: true, cert_found: true, not_found: false,
+          stone_found_at: null, cert_found_at: null, not_found_at: null, not_found_by: null,
+        }] };
+      }
+      if (sql.includes('FROM loose_diamonds')) {
+        return { rows: [{
+          barcode: 'LA-100', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'loose',
+        }] };
+      }
+      if (sql.includes('FROM request_stones rs')) {
+        return { rows: [{
+          barcode: 'LA-100', request_id: 99, sales_rep_id: 8,
+          rep_name: 'Other Rep', supply_branch: 'LA',
+        }] };
+      }
+      if (sql.includes('SET returned = $1')) return { rows: [] };
+      if (sql.includes('JOIN requests r')) {
+        return { rows: [{
+          id: 9, request_id: 41, barcode: 'LA-100', item_type: 'loose',
+          stone_found: true, cert_found: true, not_found: false, returned: false,
+        }] };
+      }
+      if (sql.includes('SET status = $1')) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  pool.connect = async () => client;
+  const res = responseRecorder();
+
+  await routeHandler('patch', '/:id/check-all')(
+    {
+      params: { id: '41' }, body: { field: 'returned', value: false },
+      user: { id: 7, role: 'inventory', branch: 'LA' },
+    },
+    res,
+    (error) => { throw error; }
+  );
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body.error, 'Request blocked: LA-100 is already requested by Other Rep');
+  const stockLock = calls.findIndex((call) => call.sql.includes('FROM loose_diamonds'));
+  const holderCheck = calls.findIndex((call) => call.sql.includes('FROM request_stones rs'));
+  assert.ok(stockLock >= 0 && stockLock < holderCheck);
+});
+
+test('row returned reopen rejects a competing active holder after locking stock', async (t) => {
+  const originalQuery = pool.query;
+  const originalConnect = pool.connect;
+  t.after(() => { pool.query = originalQuery; pool.connect = originalConnect; });
+  pool.query = async () => ({ rows: [{ branch: 'LA' }] });
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('FROM requests WHERE id = $1 FOR UPDATE')) {
+        return { rows: [{
+          branch: 'LA', fulfillment_branch: 'LA', delivery_branch: 'LA',
+          cross_branch: false, delivery_route: null, transfer_status: null,
+          request_scope: 'stone_and_cert', status: 'fulfilled', resolution_confirmed: false,
+        }] };
+      }
+      if (sql.includes('FROM request_stones\n             WHERE id = $1')) {
+        return { rows: [{ id: 9, barcode: 'LA-100', item_type: 'loose', returned: true }] };
+      }
+      if (sql.includes('FROM loose_diamonds')) {
+        return { rows: [{
+          barcode: 'LA-100', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'loose',
+        }] };
+      }
+      if (sql.includes('FROM request_stones rs')) {
+        return { rows: [{
+          barcode: 'LA-100', request_id: 99, sales_rep_id: 8,
+          rep_name: 'Other Rep', supply_branch: 'LA',
+        }] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  pool.connect = async () => client;
+  const res = responseRecorder();
+
+  await routeHandler('patch', '/:id/stones/:stoneId')(
+    {
+      params: { id: '41', stoneId: '9' }, body: { field: 'returned', value: false },
+      user: { id: 7, role: 'inventory', branch: 'LA' },
+    },
+    res,
+    (error) => { throw error; }
+  );
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body.error, 'Request blocked: LA-100 is already requested by Other Rep');
+  const stockLock = calls.findIndex((call) => call.sql.includes('FROM loose_diamonds'));
+  const holderCheck = calls.findIndex((call) => call.sql.includes('FROM request_stones rs'));
+  assert.ok(stockLock >= 0 && stockLock < holderCheck);
+});
+
 test('direct confirmation records an implied first view before confirming', async (t) => {
   const originalQuery = pool.query;
   const originalConnect = pool.connect;

@@ -7,6 +7,7 @@ const {
   isAvailabilityAuthorizationUsable,
   loadLockedAvailabilityAuthorizations,
 } = require('./stockRecheckService');
+const { getHoldersMap } = require('./duplicateService');
 
 function requestError(status, message, blocked) {
   const error = new Error(message);
@@ -130,9 +131,40 @@ async function authorizeLockedRequestStock(client, stones, salesRepId) {
   return { stockByKey, authorizationIds };
 }
 
+// A returned item can be made active again only after taking the same typed
+// stock-row locks used by request creation. This makes the following holder
+// lookup serial with a concurrent creation for the same physical item.
+async function prepareReturnedReopen(client, requestStones, fulfillmentBranch, requestId) {
+  const reopening = requestStones.filter((stone) => stone.returned);
+  if (!reopening.length) return;
+
+  const stockByKey = await loadLockedRequestStock(client, reopening);
+  for (const stone of reopening) {
+    if (!stockByKey.has(`${stone.itemType}:${stone.barcode}`)) {
+      throw requestError(409, `Request blocked: ${stone.barcode} is no longer in stock`);
+    }
+  }
+
+  const holdersMap = await getHoldersMap(fulfillmentBranch, client);
+  const blocked = [];
+  for (const stone of reopening) {
+    const holders = (holdersMap.get(stone.barcode) || [])
+      .filter((holder) => Number(holder.requestId) !== Number(requestId));
+    if (holders.length) {
+      const names = [...new Set(holders.map((holder) => holder.repName))].join(', ');
+      blocked.push(`${stone.barcode} is already requested by ${names}`);
+    }
+  }
+  if (blocked.length) {
+    const summary = `${blocked.slice(0, 5).join('; ')}${blocked.length > 5 ? `; +${blocked.length - 5} more` : ''}`;
+    throw requestError(409, `Request blocked: ${summary}`, blocked);
+  }
+}
+
 module.exports = {
   authorizeLockedRequestStock,
   normalizeRequestedStones,
   loadLockedRequestStock,
   validateRequestStock,
+  prepareReturnedReopen,
 };

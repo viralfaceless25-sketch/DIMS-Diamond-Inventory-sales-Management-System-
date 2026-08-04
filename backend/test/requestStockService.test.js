@@ -5,6 +5,7 @@ const {
   normalizeRequestedStones,
   loadLockedRequestStock,
   validateRequestStock,
+  prepareReturnedReopen,
 } = require('../src/services/requestStockService');
 
 test('request normalization enforces count, uniqueness, and barcode length', () => {
@@ -81,6 +82,132 @@ test('locked stock validation blocks a barcode missing from stock entirely', () 
     ], stock),
     (error) => error.status === 409
       && error.blocked.some((reason) => reason.includes('not in stock'))
+  );
+});
+
+test('returned reopen locks the physical stock row before checking competing holders', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM loose_diamonds')) {
+        return { rows: [{
+          barcode: 'LA-100', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'loose',
+        }] };
+      }
+      if (sql.includes('FROM request_stones rs')) {
+        return { rows: [{
+          barcode: 'LA-100', request_id: 99, sales_rep_id: 8,
+          rep_name: 'Other Rep', supply_branch: 'LA',
+        }] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+
+  await assert.rejects(
+    () => prepareReturnedReopen(client, [{ barcode: 'LA-100', itemType: 'loose', returned: true }], 'LA', 41),
+    (error) => error.status === 409 && error.message === 'Request blocked: LA-100 is already requested by Other Rep'
+  );
+
+  assert.match(calls[0].sql, /FROM loose_diamonds/);
+  assert.match(calls[0].sql, /FOR UPDATE/);
+  assert.match(calls[1].sql, /FROM request_stones rs/);
+  assert.deepEqual(calls[1].params, ['LA']);
+});
+
+test('batch returned reopen locks only changed rows in deterministic type and barcode order', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM loose_diamonds')) {
+        return { rows: [{
+          barcode: 'SAME-1', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'loose',
+        }] };
+      }
+      if (sql.includes('FROM jewelry_pieces')) {
+        return { rows: [{
+          barcode: 'SAME-1', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'jewelry',
+        }] };
+      }
+      if (sql.includes('FROM request_stones rs')) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+
+  await prepareReturnedReopen(client, [
+    { barcode: 'SAME-1', itemType: 'jewelry', returned: true },
+    { barcode: 'L-NOOP', itemType: 'loose', returned: false },
+    { barcode: 'SAME-1', itemType: 'loose', returned: true },
+  ], 'LA', 41);
+
+  assert.deepEqual(calls.slice(0, 2).map((call) => call.params[0]), [['SAME-1'], ['SAME-1']]);
+  assert.match(calls[0].sql, /FROM loose_diamonds/);
+  assert.match(calls[1].sql, /FROM jewelry_pieces/);
+  assert.match(calls[0].sql, /ORDER BY barcode FOR UPDATE/);
+  assert.match(calls[1].sql, /ORDER BY barcode FOR UPDATE/);
+});
+
+test('returned reopen ignores its own active holder', async () => {
+  const ownHolderClient = {
+    async query(sql) {
+      if (sql.includes('FROM loose_diamonds')) {
+        return { rows: [{
+          barcode: 'LA-100', branch: 'LA', stock_status: 'available',
+          snapshot_active: true, item_type: 'loose',
+        }] };
+      }
+      if (sql.includes('FROM request_stones rs')) {
+        return { rows: [{
+          barcode: 'LA-100', request_id: 41, sales_rep_id: 7,
+          rep_name: 'Current Rep', supply_branch: 'LA',
+        }] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  await assert.doesNotReject(() => prepareReturnedReopen(
+    ownHolderClient,
+    [{ barcode: 'LA-100', itemType: 'loose', returned: true }],
+    'LA',
+    41
+  ));
+});
+
+test('returned reopen guard is a no-op for an item already marked active', async () => {
+  const client = {
+    async query() {
+      throw new Error('An idempotent false-to-false update must not lock stock or check holders');
+    },
+  };
+
+  await assert.doesNotReject(() => prepareReturnedReopen(
+    client,
+    [{ barcode: 'LA-100', itemType: 'loose', returned: false }],
+    'LA',
+    41
+  ));
+});
+
+test('returned reopen rejects an absent physical row safely', async () => {
+  const missingStockClient = {
+    async query(sql) {
+      if (sql.includes('FROM loose_diamonds')) return { rows: [] };
+      throw new Error(`Holder check must not run after missing stock: ${sql}`);
+    },
+  };
+  await assert.rejects(
+    () => prepareReturnedReopen(
+      missingStockClient,
+      [{ barcode: 'MISSING', itemType: 'loose', returned: true }],
+      'LA',
+      41
+    ),
+    (error) => error.status === 409 && error.message === 'Request blocked: MISSING is no longer in stock'
   );
 });
 
