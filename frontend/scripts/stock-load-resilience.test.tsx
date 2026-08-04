@@ -149,3 +149,33 @@ test('a stale successful request cannot overwrite newer rows', async () => {
   assert.doesNotMatch(rendered, /STALE-ROW/);
   renderer.unmount();
 });
+
+test('a deferred successful stock load settles quietly after unmount', async () => {
+  const first = deferred<{ rows: LooseStone[]; total: number; page: number; pageSize: number }>();
+  api.looseStock = async () => first.promise;
+  api.stockOptions = async () => ({ shapes: [], labs: [], categories: [], metals: [], statuses: [] });
+  const renderer = mounted();
+  renderer.unmount();
+
+  await act(async () => {
+    first.resolve({ rows: [row('UNMOUNTED-ROW')], total: 1, page: 1, pageSize: 50 });
+    await Promise.resolve();
+  });
+
+  assert.equal(renderer.toJSON(), null);
+});
+
+test('a deferred failed stock load settles quietly after unmount', async () => {
+  const first = deferred<{ rows: LooseStone[]; total: number; page: number; pageSize: number }>();
+  api.looseStock = async () => first.promise;
+  api.stockOptions = async () => ({ shapes: [], labs: [], categories: [], metals: [], statuses: [] });
+  const renderer = mounted();
+  renderer.unmount();
+
+  await act(async () => {
+    first.reject(new Error('Unmounted request failed'));
+    await Promise.resolve();
+  });
+
+  assert.equal(renderer.toJSON(), null);
+});

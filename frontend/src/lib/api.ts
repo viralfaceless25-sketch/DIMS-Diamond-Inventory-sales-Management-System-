@@ -553,7 +553,22 @@ async function request<T>(
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
-  const text = await res.text();
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }
+
+  let text: string;
+  try {
+    text = await res.text();
+  } catch {
+    const message = res.ok
+      ? `Response format error (HTTP ${res.status})`
+      : `Request failed (HTTP ${res.status})`;
+    throw new ApiError(res.status, message);
+  }
   let data: unknown = null;
   let malformed = false;
   if (text) {
@@ -568,10 +583,6 @@ async function request<T>(
     ? data.error
     : `Request failed (HTTP ${res.status})`;
   if (res.status === 401) {
-    clearToken();
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.href = '/login';
-    }
     throw new ApiError(401, errorMessage);
   }
   if (!res.ok) {

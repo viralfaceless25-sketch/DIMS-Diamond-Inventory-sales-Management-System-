@@ -102,6 +102,9 @@ export default function StockPage() {
 
   useEffect(() => {
     load();
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   const loadOptions = useCallback(async () => {

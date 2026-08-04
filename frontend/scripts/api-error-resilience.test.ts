@@ -9,6 +9,14 @@ function respond(body: string, status: number) {
   globalThis.fetch = async () => new Response(body, { status });
 }
 
+function rejectBody(status: number) {
+  globalThis.fetch = async () => ({
+    ok: false,
+    status,
+    text: async () => { throw new Error('body stream failed'); },
+  } as Response);
+}
+
 function browserWithToken(token: string) {
   let storedToken: string | null = token;
   const location = { pathname: '/dashboard/stock', href: '' };
@@ -79,4 +87,25 @@ test('401 HTML errors use a stable HTTP fallback while clearing the session and 
   );
   assert.equal(browser.token(), null);
   assert.equal(browser.location.href, '/login');
+});
+
+test('401 body-read failures clear the session and redirect before returning a stable fallback', async () => {
+  const browser = browserWithToken('session-token');
+  rejectBody(401);
+
+  await assert.rejects(
+    api.branches(),
+    (error: unknown) => error instanceof Error && error.message === 'Request failed (HTTP 401)'
+  );
+  assert.equal(browser.token(), null);
+  assert.equal(browser.location.href, '/login');
+});
+
+test('non-401 body-read failures use a stable HTTP fallback', async () => {
+  rejectBody(502);
+
+  await assert.rejects(
+    api.branches(),
+    (error: unknown) => error instanceof Error && error.message === 'Request failed (HTTP 502)'
+  );
 });
