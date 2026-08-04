@@ -16,6 +16,7 @@ import {
   documentStepState,
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
+import { parseRequestDeepLinkId, requestDeepLinkError } from '@/lib/requestDeepLink';
 
 const STONE_TABLE_COLS = '58px 58px 84px minmax(170px,1.35fr) minmax(150px,1fr) 96px 72px 88px minmax(170px,1fr)';
 
@@ -36,58 +37,105 @@ export default function RequestsPage() {
   const [scanMessage, setScanMessage] = useState('');
   const [rechecks, setRechecks] = useState<StockRecheck[]>([]);
   const [loading, setLoading] = useState(true);
+  const [listReady, setListReady] = useState(false);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+  const [deepLinkRetry, setDeepLinkRetry] = useState(0);
   const scannerBufferRef = useRef({ value: '', lastKeyAt: 0 });
   const scannerTimerRef = useRef<number | null>(null);
-  const targetOpeningRef = useRef<Set<number>>(new Set());
+  const requestOpeningRef = useRef<Set<number>>(new Set());
+  const targetOpeningRef = useRef<Set<string>>(new Set());
+  const deepLinkCompletedRef = useRef<Set<string>>(new Set());
+  const deepLinkKeyRef = useRef('');
+  const mountedRef = useRef(true);
+  const loadVersionRef = useRef(0);
+  const scrollTimersRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      scrollTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      scrollTimersRef.current.clear();
+    };
+  }, []);
 
   const load = useCallback(async () => {
+    const version = ++loadVersionRef.current;
     setLoading(true);
+    setListReady(false);
     try {
       const [s, r, recheckQueue] = await Promise.all([
         api.stats(branch),
         api.requests({ branch, view, sort, search }),
         api.stockRecheckQueue(),
       ]);
+      if (!mountedRef.current || version !== loadVersionRef.current) return;
       setStats(s);
       setRequests(r);
       setRechecks(recheckQueue.rows);
+      setListReady(true);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not load the inventory request queue.');
+      if (!mountedRef.current || version !== loadVersionRef.current) return;
+      const message = error instanceof Error ? error.message : 'Could not load the inventory request queue.';
+      window.alert(message);
+      if (requestIdParam) setDeepLinkError(message);
     } finally {
-      setLoading(false);
+      if (mountedRef.current && version === loadVersionRef.current) setLoading(false);
     }
-  }, [branch, view, sort, search]);
+  }, [branch, requestIdParam, view, sort, search]);
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, deepLinkRetry]);
 
   useEffect(() => {
     if (user?.branch && user.branch !== branch) setBranch(user.branch);
   }, [user?.branch, branch]);
   useBranchSocket(branch, () => load());
 
-  async function toggleExpand(id: number) {
+  async function toggleExpand(
+    id: number,
+    isCurrent: () => boolean = () => true,
+    isDeepLinkOpen = false,
+  ) {
     if (expanded[id]) {
+      if (!mountedRef.current || !isCurrent()) return false;
       setExpanded((p) => {
         const n = { ...p };
         delete n[id];
         return n;
       });
-      return;
+      return true;
     }
-    const detail = await api.requestDetail(id);
-    const viewed = user?.branch === detail.fulfillmentBranch
-      ? await api.markRequestViewed(id)
-      : null;
-    setExpanded((p) => ({
-      ...p,
-      [id]: {
-        ...detail,
-        inventoryViewedAt: viewed?.inventoryViewedAt || detail.inventoryViewedAt,
-        inventoryViewedBy: viewed?.inventoryViewedBy || detail.inventoryViewedBy,
-      },
-    }));
+    if (requestOpeningRef.current.has(id)) return false;
+    requestOpeningRef.current.add(id);
+    try {
+      const detail = await api.requestDetail(id);
+      if (!mountedRef.current || !isCurrent()) return false;
+      const viewed = user?.branch === detail.fulfillmentBranch
+        ? await api.markRequestViewed(id)
+        : null;
+      if (!mountedRef.current || !isCurrent()) return false;
+      setExpanded((p) => ({
+        ...p,
+        [id]: {
+          ...detail,
+          inventoryViewedAt: viewed?.inventoryViewedAt || detail.inventoryViewedAt,
+          inventoryViewedBy: viewed?.inventoryViewedBy || detail.inventoryViewedBy,
+        },
+      }));
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Could not open request #${id}.`;
+      if (mountedRef.current && isCurrent() && isDeepLinkOpen) {
+        setDeepLinkError(message);
+      } else if (mountedRef.current && isCurrent()) {
+        window.alert(message);
+      }
+      return false;
+    } finally {
+      requestOpeningRef.current.delete(id);
+    }
   }
 
   async function refreshExpandedRequest(requestId: number) {
@@ -106,10 +154,41 @@ export default function RequestsPage() {
     await load();
   }
 
+  function scrollToRequest(id: number, isCurrent: () => boolean = () => true) {
+    let timer = 0;
+    let fired = false;
+    timer = window.setTimeout(() => {
+      fired = true;
+      scrollTimersRef.current.delete(timer);
+      if (mountedRef.current && isCurrent()) document.getElementById(`request-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    if (!fired) scrollTimersRef.current.add(timer);
+  }
+
   useEffect(() => {
-    const targetId = Number(requestIdParam);
+    const targetId = parseRequestDeepLinkId(requestIdParam);
+    const invalidTarget = requestDeepLinkError(requestIdParam);
+    const attemptKey = `${requestIdParam || ''}:${deepLinkRetry}`;
+    deepLinkKeyRef.current = attemptKey;
+    if (!requestIdParam) {
+      setDeepLinkError(null);
+      return;
+    }
+    if (invalidTarget || targetId === null) {
+      setDeepLinkError(invalidTarget);
+      return;
+    }
+    if (!listReady) return;
     const targetRequest = requests.find((request) => request.id === targetId);
-    if (!Number.isInteger(targetId) || !targetRequest) return;
+    if (!targetRequest) {
+      if (view === 'active' && !deepLinkCompletedRef.current.has(attemptKey)) {
+        deepLinkCompletedRef.current.add(attemptKey);
+        setView('completed');
+        return;
+      }
+      setDeepLinkError(`Request #${targetId} could not be found in the ${view} queue. It may be unavailable to your branch.`);
+      return;
+    }
     const route = targetRequest.crossBranch
       ? `${targetRequest.fulfillmentBranch} to ${targetRequest.deliveryBranch}`
       : `${targetRequest.branch} local`;
@@ -118,19 +197,26 @@ export default function RequestsPage() {
       [`${route}-${targetRequest.requestType}`]: false,
     }));
     if (expanded[targetId]) {
-      window.setTimeout(() => {
-        document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 0);
+      setDeepLinkError(null);
+      scrollToRequest(targetId, () => deepLinkKeyRef.current === attemptKey);
       return;
     }
-    if (targetOpeningRef.current.has(targetId)) return;
-    targetOpeningRef.current.add(targetId);
-    void toggleExpand(targetId)
-      .then(() => window.setTimeout(() => {
-        document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 0))
-      .finally(() => targetOpeningRef.current.delete(targetId));
-  }, [expanded, requestIdParam, requests]);
+    if (targetOpeningRef.current.has(attemptKey)) return;
+    targetOpeningRef.current.add(attemptKey);
+    void toggleExpand(targetId, () => deepLinkKeyRef.current === attemptKey, true)
+      .then((opened) => {
+        if (!opened || !mountedRef.current) return;
+        setDeepLinkError(null);
+        scrollToRequest(targetId, () => deepLinkKeyRef.current === attemptKey);
+      })
+      .finally(() => targetOpeningRef.current.delete(attemptKey));
+  }, [deepLinkRetry, expanded, listReady, requestIdParam, requests, view]);
+
+  function retryDeepLink() {
+    setDeepLinkError(null);
+    setDeepLinkRetry((current) => current + 1);
+    setView('active');
+  }
 
   async function toggleStone(reqId: number, stone: RequestStone, field: 'stone_found' | 'cert_found' | 'not_found' | 'returned') {
     try {
@@ -430,6 +516,15 @@ export default function RequestsPage() {
       <TopBar title="Requests" branch={branch} onBranch={setBranch} lockBranch={user?.branch || undefined} search={search} onSearch={setSearch} t={t} />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 26 }}>
+        {deepLinkError && (
+          <div role="alert" style={{ marginBottom: 16, padding: 12, borderRadius: 9, border: `1px solid ${RED}`, background: 'oklch(62% 0.2 25 / 0.12)', color: t.text, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ font: "600 13px 'Inter'", flex: 1 }}>{deepLinkError}</span>
+            <button onClick={retryDeepLink} style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "700 12px 'Inter'" }}>Retry</button>
+            <button onClick={() => setView(view === 'active' ? 'completed' : 'active')} style={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: t.text, cursor: 'pointer', font: "700 12px 'Inter'" }}>
+              {view === 'active' ? 'Show completed requests' : 'Show active requests'}
+            </button>
+          </div>
+        )}
         {rechecks.length > 0 && (
           <div style={{ marginBottom: 20, padding: 16, background: 'oklch(75% 0.14 80 / 0.08)', border: '1px solid oklch(75% 0.14 80 / 0.28)', borderRadius: 12 }}>
             <div style={{ font: "800 15px 'Inter'", color: AMBER }}>LIVE MAITRI ERP RECHECKS — {user?.branch}</div>

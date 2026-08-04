@@ -13,6 +13,7 @@ import {
   documentStepState,
   hasDeliveryWorkflow,
 } from '@/lib/requestWorkflow';
+import { parseRequestDeepLinkId, requestDeepLinkError } from '@/lib/requestDeepLink';
 
 type PaperworkUpload = {
   requestId: number;
@@ -37,35 +38,92 @@ export default function MyRequestsPage() {
   const [paperworkFor, setPaperworkFor] = useState<PaperworkUpload | null>(null);
   const [message, setMessage] = useState('');
   const [messageError, setMessageError] = useState(false);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+  const [listReady, setListReady] = useState(false);
+  const [deepLinkRetry, setDeepLinkRetry] = useState(0);
   const labelInputRef = useRef<HTMLInputElement>(null);
   const paperworkInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+  const loadVersionRef = useRef(0);
+  const scrollTimersRef = useRef<Set<number>>(new Set());
+  const deepLinkKeyRef = useRef('');
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      scrollTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      scrollTimersRef.current.clear();
+    };
+  }, []);
 
   const load = useCallback(async () => {
-    if (!user?.salesRepId) return;
-    setLoading(true);
-    try {
-      setRequests(await api.myRequests(user.salesRepId));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load your requests.');
-      setMessageError(true);
-    } finally {
-      setLoading(false);
+    const version = ++loadVersionRef.current;
+    if (!user?.salesRepId) {
+      if (mountedRef.current && version === loadVersionRef.current) setLoading(false);
+      return;
     }
-  }, [user]);
+    setLoading(true);
+    setListReady(false);
+    try {
+      const next = await api.myRequests(user.salesRepId);
+      if (!mountedRef.current || version !== loadVersionRef.current) return;
+      setRequests(next);
+      setListReady(true);
+    } catch (error) {
+      if (!mountedRef.current || version !== loadVersionRef.current) return;
+      const message = error instanceof Error ? error.message : 'Could not load your requests.';
+      setMessage(message);
+      setMessageError(true);
+      if (requestIdParam) setDeepLinkError(message);
+    } finally {
+      if (mountedRef.current && version === loadVersionRef.current) setLoading(false);
+    }
+  }, [requestIdParam, user]);
 
   useEffect(() => {
     load();
-  }, [load]);
-  useEffect(() => {
-    const targetId = Number(requestIdParam);
-    if (!Number.isInteger(targetId)
-      || !requests.some((request) => request.id === targetId)) return;
-    setOpen((current) => ({ ...current, [targetId]: true }));
-    window.setTimeout(() => {
-      document.getElementById(`request-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [deepLinkRetry, load]);
+
+  function scrollToRequest(id: number, isCurrent: () => boolean = () => true) {
+    let timer = 0;
+    let fired = false;
+    timer = window.setTimeout(() => {
+      fired = true;
+      scrollTimersRef.current.delete(timer);
+      if (mountedRef.current && isCurrent()) document.getElementById(`request-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 0);
-  }, [requestIdParam, requests]);
+    if (!fired) scrollTimersRef.current.add(timer);
+  }
+
+  useEffect(() => {
+    const targetId = parseRequestDeepLinkId(requestIdParam);
+    const invalidTarget = requestDeepLinkError(requestIdParam);
+    const attemptKey = `${requestIdParam || ''}:${deepLinkRetry}`;
+    deepLinkKeyRef.current = attemptKey;
+    if (!requestIdParam) {
+      setDeepLinkError(null);
+      return;
+    }
+    if (invalidTarget || targetId === null) {
+      setDeepLinkError(invalidTarget);
+      return;
+    }
+    if (!listReady) return;
+    if (!requests.some((request) => request.id === targetId)) {
+      setDeepLinkError(`Request #${targetId} could not be found. It may be unavailable to your account.`);
+      return;
+    }
+    setOpen((current) => ({ ...current, [targetId]: true }));
+    setDeepLinkError(null);
+    scrollToRequest(targetId, () => deepLinkKeyRef.current === attemptKey);
+  }, [deepLinkRetry, listReady, requestIdParam, requests]);
   useBranchSocket(user?.branch || 'NY', () => load());
+
+  function retryDeepLink() {
+    setDeepLinkError(null);
+    setDeepLinkRetry((current) => current + 1);
+  }
 
   function showMessage(text: string, error = false) {
     setMessage(text);
@@ -193,6 +251,12 @@ export default function MyRequestsPage() {
       />
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 26px 26px' }}>
+        {deepLinkError && (
+          <div role="alert" style={{ marginBottom: 14, padding: 12, borderRadius: 9, border: `1px solid ${RED}`, background: 'oklch(62% 0.2 25 / 0.12)', color: t.text, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ font: "600 13px 'Inter'", flex: 1 }}>{deepLinkError}</span>
+            <button onClick={retryDeepLink} style={{ ...actionButton, border: `1px solid ${t.borderLight}`, background: t.bgCard, color: t.text }}>Retry</button>
+          </div>
+        )}
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFaint }}>Loading…</div>
         ) : requests.length === 0 ? (
