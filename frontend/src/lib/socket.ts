@@ -10,13 +10,15 @@ import { isRequestNotification, RequestNotification } from './requestNotificatio
 // simplest correct usage is to refetch the relevant data on any event.
 export function useBranchSocket(
   branch: string,
-  onEvent: (event: string, payload: unknown) => void
+  onEvent: (event: string, payload: unknown) => void,
+  enabled = process.env.NODE_ENV !== 'test'
 ) {
   const socketRef = useRef<Socket | null>(null);
   const handlerRef = useRef(onEvent);
   handlerRef.current = onEvent;
 
   useEffect(() => {
+    if (!enabled) return;
     const socket = io(api.apiUrl, {
       transports: ['websocket', 'polling'],
       auth: { token: getToken() },
@@ -41,7 +43,7 @@ export function useBranchSocket(
     return () => {
       socket.disconnect();
     };
-  }, [branch]);
+  }, [branch, enabled]);
 
   return socketRef;
 }

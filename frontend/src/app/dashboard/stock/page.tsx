@@ -45,8 +45,10 @@ export default function StockPage() {
   const [uploadErr, setUploadErr] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setLoadErr('');
     const q = {
@@ -80,18 +82,21 @@ export default function StockPage() {
     try {
       if (itemType === 'loose') {
         const res = await api.looseStock(q);
+        if (generation !== loadGeneration.current) return;
         setLoose(res.rows);
         setTotal(res.total);
       } else {
         const res = await api.jewelryStock(q);
+        if (generation !== loadGeneration.current) return;
         setJewelry(res.rows);
         setTotal(res.total);
       }
     } catch (err) {
+      if (generation !== loadGeneration.current) return;
       const message = err instanceof Error ? err.message : 'Please try again.';
       setLoadErr(`Unable to load stock. ${message}`);
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [branch, itemType, page, barcodeQ, certQ, refQ, shapes, labs, categories, metals, goldColors, purities, caratMin, caratMax, colors, clarities, statuses, certStatuses]);
 

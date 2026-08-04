@@ -553,32 +553,32 @@ async function request<T>(
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const text = await res.text();
+  let data: unknown = null;
+  let malformed = false;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      malformed = true;
+    }
+  }
 
+  const errorMessage = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
+    ? data.error
+    : `Request failed (HTTP ${res.status})`;
   if (res.status === 401) {
     clearToken();
     if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
       window.location.href = '/login';
     }
-    throw new ApiError(401, 'Session expired');
-  }
-
-  const text = await res.text();
-  let data: unknown = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      const message = res.ok
-        ? `Response format error (HTTP ${res.status})`
-        : `Request failed (HTTP ${res.status})`;
-      throw new ApiError(res.status, message);
-    }
+    throw new ApiError(401, errorMessage);
   }
   if (!res.ok) {
-    const message = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
-      ? data.error
-      : `Request failed (HTTP ${res.status})`;
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, errorMessage);
+  }
+  if (malformed) {
+    throw new ApiError(res.status, `Response format error (HTTP ${res.status})`);
   }
   return data as T;
 }
