@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { api, getToken } from './api';
+import { isRequestNotification, RequestNotification } from './requestNotifications';
 
 // Subscribes to real-time events for a branch. `onEvent` is called with the
 // event name and payload for any of the backend's broadcast events. The
@@ -43,4 +44,31 @@ export function useBranchSocket(
   }, [branch]);
 
   return socketRef;
+}
+
+export function useRequestNotificationSocket(
+  onNotification: (notification: RequestNotification) => void
+) {
+  const handlerRef = useRef(onNotification);
+  handlerRef.current = onNotification;
+
+  useEffect(() => {
+    const socket = io(api.apiUrl, {
+      transports: ['websocket', 'polling'],
+      auth: { token: getToken() },
+    });
+    const events = [
+      'notification:request-created',
+      'notification:request-viewed',
+      'notification:request-confirmed',
+    ];
+    const receive = (payload: unknown) => {
+      if (isRequestNotification(payload)) handlerRef.current(payload);
+    };
+    events.forEach((event) => socket.on(event, receive));
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 }
