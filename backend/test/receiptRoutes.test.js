@@ -171,6 +171,14 @@ test('terminal matched receipt correction rejects before any receipt, movement, 
 
   assert.equal(res.statusCode, 409);
   assert.equal(res.body.error, 'This shipment was already handed to the sales rep');
-  assert.equal(calls.some((call) => call.sql.includes('FROM requests r') && call.sql.includes('FOR UPDATE')), true);
+  const receiptLock = calls.findIndex((call) => (
+    call.sql.includes('FROM shipment_receipts') && call.sql.includes('FOR UPDATE')
+  ));
+  const requestLock = calls.findIndex((call) => (
+    call.sql.includes('FROM requests r') && call.sql.includes('FOR UPDATE')
+  ));
+  assert.ok(receiptLock >= 0, 'correction must lock its receipt before reading it');
+  assert.ok(requestLock >= 0, 'matched correction must lock its request before the terminal guard');
+  assert.ok(receiptLock < requestLock, 'correction must read its receipt before locking its matched request');
   assert.deepEqual(writes, []);
 });

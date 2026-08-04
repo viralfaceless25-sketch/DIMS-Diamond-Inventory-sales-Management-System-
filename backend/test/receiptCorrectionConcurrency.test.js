@@ -11,11 +11,15 @@ function deferred() {
   return { promise, resolve };
 }
 
-// A deterministic model of the request row lock shared by the two receipt
-// transactions. It makes the state seen after a waiter acquires the lock equal
-// to the first transaction's committed state, which is the database guarantee
-// this route relies on without requiring a live database in unit tests.
+// A deterministic model of the production lock protocol. Correction first
+// locks its shipment_receipts row to discover the matched request, then locks
+// that shared request row. Handoff locks only the request row; it reads receipt
+// rollup rows without FOR UPDATE. Therefore correction can wait on handoff's
+// request lock while holding its receipt lock, but handoff never waits for that
+// receipt lock: there is no lock cycle. Once the waiter gets the request lock,
+// it sees the first transaction's committed state.
 function createReceiptHandoffProtocol() {
+  let receiptLockOwner = null;
   let lockOwner = null;
   const waiters = [];
   const blocked = new Map();
@@ -25,6 +29,16 @@ function createReceiptHandoffProtocol() {
   function blockedSignal(name) {
     if (!blocked.has(name)) blocked.set(name, deferred());
     return blocked.get(name);
+  }
+
+  function lockReceipt(name) {
+    assert.equal(receiptLockOwner, null, 'only one correction can own its receipt row');
+    receiptLockOwner = name;
+  }
+
+  function unlockReceipt(name) {
+    assert.equal(receiptLockOwner, name, `${name} must own the receipt lock`);
+    receiptLockOwner = null;
   }
 
   async function lock(name) {
@@ -51,6 +65,7 @@ function createReceiptHandoffProtocol() {
 
   return {
     async correct() {
+      lockReceipt('correction');
       await lock('correction');
       try {
         assertReceiptCorrectionAllowed({ transfer_status: state.transferStatus });
@@ -59,11 +74,16 @@ function createReceiptHandoffProtocol() {
             state.complete = false;
             writes.correction += 1;
             unlock('correction');
+            unlockReceipt('correction');
           },
-          rollback() { unlock('correction'); },
+          rollback() {
+            unlock('correction');
+            unlockReceipt('correction');
+          },
         };
       } catch (error) {
         unlock('correction');
+        unlockReceipt('correction');
         throw error;
       }
     },
@@ -95,6 +115,7 @@ function createReceiptHandoffProtocol() {
     },
     state: () => ({ ...state }),
     writes: () => ({ ...writes }),
+    locks: () => ({ receipt: receiptLockOwner, request: lockOwner }),
     waitForBlocked: (name) => blockedSignal(name).promise,
   };
 }
@@ -105,6 +126,7 @@ test('correction-first makes the waiting handoff fail its completeness gate with
   const handoff = protocol.handoff().then(() => null, (error) => error);
   await protocol.waitForBlocked('handoff');
 
+  assert.deepEqual(protocol.locks(), { receipt: 'correction', request: 'correction' });
   correction.commit();
   const error = await handoff;
 
@@ -120,6 +142,7 @@ test('handoff-first makes the waiting correction reject without correction write
   const correction = protocol.correct().then(() => null, (error) => error);
   await protocol.waitForBlocked('correction');
 
+  assert.deepEqual(protocol.locks(), { receipt: 'correction', request: 'handoff' });
   handoff.commit();
   const error = await correction;
 
