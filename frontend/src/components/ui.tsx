@@ -335,3 +335,57 @@ export function LoadError({
     </div>
   );
 }
+
+// Modal dialog with the behaviour a modal is expected to have: it is announced
+// as a dialog, it takes focus when it opens, it returns focus to whatever
+// opened it, and Escape and the backdrop both route through one close handler
+// so a modal holding unsaved work can intercept them.
+export function ModalDialog({
+  labelledBy,
+  onRequestClose,
+  width,
+  children,
+  t,
+}: {
+  labelledBy: string;
+  onRequestClose: () => void;
+  width: number;
+  children: React.ReactNode;
+  t: { bgCard: string; border: string };
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onRequestClose);
+  closeRef.current = onRequestClose;
+
+  useEffect(() => {
+    const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+    panelRef.current?.focus();
+    if (typeof window === 'undefined') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopPropagation(); closeRef.current(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      opener?.focus?.();
+    };
+  }, []);
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onRequestClose(); }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        tabIndex={-1}
+        style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, width, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', outline: 'none', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}

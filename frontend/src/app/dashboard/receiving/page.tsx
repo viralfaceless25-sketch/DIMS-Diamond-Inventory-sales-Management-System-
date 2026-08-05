@@ -12,7 +12,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/ThemeProvider';
 import { useBranchSocket } from '@/lib/socket';
-import { Copyable } from '@/components/ui';
+import { Copyable, ModalDialog } from '@/components/ui';
 import { ACCENT, AMBER, GREEN, RED } from '@/lib/theme';
 import { extractBarcodes } from '@/lib/utils';
 import {
@@ -178,6 +178,7 @@ export default function ReceivingPage() {
   // individually, and saves one receipt per barcode via the same endpoint the
   // single scan uses. Physical receipt still never touches the ERP BT state.
   const [batchOpen, setBatchOpen] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [batchScan, setBatchScan] = useState('');
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
   const [batchScanning, setBatchScanning] = useState(false);
@@ -437,13 +438,28 @@ export default function ReceivingPage() {
       setMessage(`Saved ${savedCount} scanned ${savedCount === 1 ? 'item' : 'items'}.`);
       setBatchRows([]);
       setBatchOpen(false);
+      setConfirmDiscard(false);
       setAllowDuplicates(false);
     } else {
       setMessage(`Saved ${savedCount}; ${failedCount} still need attention below.`);
     }
   }
 
-  function closeBatch() {
+  const unsavedBatchRows = batchRows.filter((row) => !row.saved);
+
+  // Closing used to drop every scanned row without asking. A clerk who has
+  // scanned twenty stones and reaches for Close should not lose them
+  // silently, so an explicit confirmation stands between the two.
+  function requestCloseBatch() {
+    if (unsavedBatchRows.length > 0) {
+      setConfirmDiscard(true);
+      return;
+    }
+    discardBatch();
+  }
+
+  function discardBatch() {
+    setConfirmDiscard(false);
     setBatchOpen(false);
     setBatchRows([]);
     setBatchScan('');
@@ -735,10 +751,10 @@ export default function ReceivingPage() {
       </div>
 
       {batchOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ ...card, width: 760, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
+        <ModalDialog labelledBy="batch-dialog-title" onRequestClose={requestCloseBatch} width={760} t={t}>
+          <div>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ font: "800 17px 'Inter'" }}>Scan shipment</div>
+              <div id="batch-dialog-title" style={{ font: "800 17px 'Inter'" }}>Scan shipment</div>
               <span style={{ padding: '4px 9px', borderRadius: 20, background: 'oklch(78% 0.13 240 / 0.14)', color: ACCENT, font: "700 12.5px 'Inter'" }}>Receiving at {branch}</span>
               <div style={{ flex: 1 }} />
               <div style={{ font: "600 13px 'Inter'", color: t.textFaint }}>{batchRows.length} scanned</div>
@@ -826,7 +842,7 @@ export default function ReceivingPage() {
                 Allow duplicate packages
               </label>
               <div style={{ flex: 1 }} />
-              <button type="button" onClick={closeBatch} style={{ ...inputStyle, cursor: 'pointer' }}>Close</button>
+              <button type="button" onClick={requestCloseBatch} style={{ ...inputStyle, cursor: 'pointer' }}>Close</button>
               <button
                 type="button"
                 disabled={batchSaving || batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length === 0}
@@ -836,14 +852,31 @@ export default function ReceivingPage() {
                 {batchSaving ? 'Saving…' : `Save ${batchRows.filter((row) => !row.saved && !row.loading && receiptFormReady(batchRowFormState(row))).length} received`}
               </button>
             </div>
+
+            {confirmDiscard && (
+              <div role="alertdialog" aria-labelledby="discard-title" style={{ padding: '14px 20px', borderTop: `1px solid ${RED}`, background: t.bgSide }}>
+                <div id="discard-title" style={{ font: "700 14px 'Inter'", color: t.text }}>
+                  Discard {unsavedBatchRows.length} unsaved {unsavedBatchRows.length === 1 ? 'scan' : 'scans'}?
+                </div>
+                <div style={{ marginTop: 4, font: "500 13px 'Inter'", color: t.textFaint }}>
+                  They have not been saved and cannot be recovered.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                  <button type="button" onClick={() => setConfirmDiscard(false)} style={{ ...inputStyle, cursor: 'pointer' }}>Keep scanning</button>
+                  <button type="button" onClick={discardBatch} style={{ padding: '10px 15px', border: 0, borderRadius: 8, background: RED, color: '#fff', font: "800 13.5px 'Inter'", cursor: 'pointer' }}>
+                    Discard {unsavedBatchRows.length}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {editing && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ ...card, width: 430, maxWidth: '100%', padding: 20, boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
-            <div style={{ font: "800 17px 'Inter'" }}>Correct <Copyable value={editing.barcode} /></div>
+        <ModalDialog labelledBy="correction-dialog-title" onRequestClose={() => setEditing(null)} width={430} t={t}>
+          <div style={{ padding: 20 }}>
+            <div id="correction-dialog-title" style={{ font: "800 17px 'Inter'" }}>Correct <Copyable value={editing.barcode} /></div>
             <div style={{ color: t.textFaint, font: "500 13px 'Inter'", marginTop: 4 }}>
               The original scan remains in the audit history.
             </div>
@@ -863,7 +896,7 @@ export default function ReceivingPage() {
               <button disabled={!editStone && !editCert} onClick={() => saveCorrection()} style={{ padding: '10px 15px', border: 0, borderRadius: 8, background: ACCENT, color: '#07110d', font: "800 14px 'Inter'", cursor: 'pointer', opacity: !editStone && !editCert ? 0.4 : 1 }}>Save correction</button>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
     </>
   );
