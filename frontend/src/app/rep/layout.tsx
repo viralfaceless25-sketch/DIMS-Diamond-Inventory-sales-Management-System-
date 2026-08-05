@@ -9,6 +9,7 @@ import { THEMES, ThemeName, ACCENT, COLOR_ORDER, CLARITY_ORDER, initialsOf } fro
 import { api } from '@/lib/api';
 import { MiniDiamondSearch } from '@/components/MiniDiamondSearch';
 import { NotificationHost } from '@/components/NotificationHost';
+import { AppShell } from '@/components/AppShell';
 import { ThemeContext, CartContext, StockFilterContext, QuickSearchContext } from './repContext';
 
 // Theme context (light/dark) — Sales Rep app only, per the prototype.
@@ -73,13 +74,21 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
       <CartContext.Provider value={{ count: cartCount, setCount: setCartCount }}>
         <StockFilterContext.Provider value={{ colors, setColors, clarities, setClarities, shapes, setShapes, shapeOptions }}>
         <QuickSearchContext.Provider value={{ term: quickSearchTerm, setTerm: setQuickSearchTerm }}>
-        <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
-          <NotificationHost role="sales_rep" />
-          {/* Sidebar itself stays overflow:visible (so the mini-search and
-              shape-picker popovers are never clipped) — only the nav/filter
-              region below scrolls internally when it's taller than the
-              viewport at higher zoom. */}
-          <div style={{ width: 224, flex: 'none', display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
+        <>
+        {/* Rendered outside the shell: inside the sidebar node it would
+            unmount whenever the narrow-viewport drawer is closed, silently
+            stopping notifications on a phone. */}
+        <NotificationHost role="sales_rep" />
+        <AppShell
+          t={t}
+          brand="Diamond ERP"
+          pathname={pathname}
+          /* Sidebar itself stays overflow:visible (so the mini-search and
+             shape-picker popovers are never clipped) — only the nav/filter
+             region below scrolls internally when it's taller than the
+             viewport at higher zoom. */
+          sidebarStyle={{ display: 'flex', flexDirection: 'column', padding: '18px 14px' }}
+          sidebar={<>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 18px' }}>
               <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 16px 'Inter'", color: '#0a0e0d' }}>D</div>
               <div style={{ font: "700 16.5px 'Inter'", color: t.text }}>Diamond ERP</div>
@@ -159,13 +168,11 @@ export default function RepLayout({ children }: { children: React.ReactNode }) {
                 Sign out
               </button>
             </div>
-          </div>
-
-          {/* Main */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, background: t.bg }}>
-            {children}
-          </div>
-        </div>
+          </>}
+        >
+          {children}
+        </AppShell>
+        </>
         </QuickSearchContext.Provider>
         </StockFilterContext.Provider>
       </CartContext.Provider>

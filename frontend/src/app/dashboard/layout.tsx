@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from '@/lib/ThemeProvider';
 import { ACCENT, repColor } from '@/lib/theme';
 import { api } from '@/lib/api';
 import { NotificationHost } from '@/components/NotificationHost';
+import { AppShell } from '@/components/AppShell';
 
 const NAV = [
   { href: '/dashboard/requests', label: 'Requests', icon: 'M4 4h16v12H8l-4 4V4z' },
@@ -36,12 +37,20 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: '100vh', background: t.bg, color: t.text, overflow: 'hidden' }}>
-      <NotificationHost role="inventory" />
-      {/* Sidebar — scrolls on its own (overflowY + minHeight:0) so a tall
-          nav/rep-roster at higher zoom never drags the main panel along
-          with it or leaves blank space where the two got out of sync. */}
-      <div style={{ width: 224, flex: 'none', minHeight: 0, overflowY: 'auto', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}>
+    <>
+    {/* Rendered outside the shell: inside the sidebar node it would unmount
+        whenever the narrow-viewport drawer is closed, silently stopping
+        notifications on a phone. */}
+    <NotificationHost role="inventory" />
+    <AppShell
+      t={t}
+      brand="Diamond ERP"
+      pathname={pathname}
+      /* Sidebar — scrolls on its own (overflowY + minHeight:0) so a tall
+         nav/rep-roster at higher zoom never drags the main panel along
+         with it or leaves blank space where the two got out of sync. */
+      sidebarStyle={{ minHeight: 0, overflowY: 'auto', background: t.bgSide, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', padding: '18px 14px' }}
+      sidebar={<>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px 22px' }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 16px 'Inter'", color: '#0a0e0d' }}>D</div>
           <div style={{ font: "700 16.5px 'Inter'", color: t.text }}>Diamond ERP</div>
@@ -103,13 +112,11 @@ function Shell({ children }: { children: React.ReactNode }) {
             Sign out
           </button>
         </div>
-      </div>
-
-      {/* Main */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, background: t.bg }}>
-        {children}
-      </div>
-    </div>
+      </>}
+    >
+      {children}
+    </AppShell>
+    </>
   );
 }
 
