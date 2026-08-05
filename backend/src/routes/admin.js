@@ -65,6 +65,7 @@ router.post('/users', async (req, res, next) => {
            RETURNING id, email, role, sales_rep_id AS "salesRepId", is_active AS "isActive", must_change_password AS "mustChangePassword"`,
           [email, hash, role, salesRepId]
         );
+        await writeAudit({ actorId: req.user.id, action: 'admin.user_created', targetType: 'user', targetId: rows[0].id, ip: req.ip, details: { email, role, branch: branch || null } }, client);
         return rows[0];
       });
     } catch (err) {
@@ -72,7 +73,6 @@ router.post('/users', async (req, res, next) => {
       throw err;
     }
 
-    await writeAudit({ actorId: req.user.id, action: 'admin.user_created', targetType: 'user', targetId: createdUser.id, ip: req.ip, details: { email, role, branch: branch || null } });
     res.status(201).json(createdUser);
   } catch (err) {
     next(err);
@@ -85,15 +85,22 @@ router.patch('/users/:id/status', async (req, res, next) => {
     const isActive = req.body?.isActive;
     if (!Number.isInteger(id) || typeof isActive !== 'boolean') return res.status(400).json({ error: 'Valid user and status are required' });
     if (id === req.user.id && !isActive) return res.status(400).json({ error: 'You cannot deactivate your own account' });
-    const { rows } = await pool.query(
-      `UPDATE users SET is_active = $2, token_version = token_version + 1,
-       failed_login_attempts = 0, locked_until = NULL, updated_at = now()
-       WHERE id = $1 RETURNING id, is_active AS "isActive"`,
-      [id, isActive]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
-    await writeAudit({ actorId: req.user.id, action: isActive ? 'admin.user_activated' : 'admin.user_deactivated', targetType: 'user', targetId: id, ip: req.ip });
-    res.json(rows[0]);
+    // Deactivating revokes every live session. Committing that without its
+    // audit row would erase who locked an account out and when, so the status
+    // change and its audit share one transaction.
+    const updated = await withTransaction(pool, async (client) => {
+      const { rows } = await client.query(
+        `UPDATE users SET is_active = $2, token_version = token_version + 1,
+         failed_login_attempts = 0, locked_until = NULL, updated_at = now()
+         WHERE id = $1 RETURNING id, is_active AS "isActive"`,
+        [id, isActive]
+      );
+      if (!rows[0]) return null;
+      await writeAudit({ actorId: req.user.id, action: isActive ? 'admin.user_activated' : 'admin.user_deactivated', targetType: 'user', targetId: id, ip: req.ip }, client);
+      return rows[0];
+    });
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+    res.json(updated);
   } catch (err) {
     next(err);
   }
@@ -107,14 +114,18 @@ router.post('/users/:id/reset-password', async (req, res, next) => {
     const validationError = passwordError(password);
     if (validationError) return res.status(400).json({ error: validationError });
     const hash = await hashPassword(password);
-    const { rowCount } = await pool.query(
-      `UPDATE users SET password_hash = $2, must_change_password = true,
-       token_version = token_version + 1, failed_login_attempts = 0,
-       locked_until = NULL, updated_at = now() WHERE id = $1`,
-      [id, hash]
-    );
-    if (!rowCount) return res.status(404).json({ error: 'User not found' });
-    await writeAudit({ actorId: req.user.id, action: 'admin.password_reset', targetType: 'user', targetId: id, ip: req.ip });
+    const reset = await withTransaction(pool, async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE users SET password_hash = $2, must_change_password = true,
+         token_version = token_version + 1, failed_login_attempts = 0,
+         locked_until = NULL, updated_at = now() WHERE id = $1`,
+        [id, hash]
+      );
+      if (!rowCount) return false;
+      await writeAudit({ actorId: req.user.id, action: 'admin.password_reset', targetType: 'user', targetId: id, ip: req.ip }, client);
+      return true;
+    });
+    if (!reset) return res.status(404).json({ error: 'User not found' });
     res.json({ ok: true });
   } catch (err) {
     next(err);

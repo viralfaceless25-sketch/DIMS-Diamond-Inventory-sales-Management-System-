@@ -109,27 +109,28 @@ router.post('/', requireRole('sales_rep'), requestLimit, async (req, res, next) 
       return res.status(400).json({ error: 'Your account is not linked to a sales rep profile' });
     }
     const input = normalizeStockRecheckInput(req.body);
-    const result = await withTransaction(pool, (client) => (
-      createOrReuseStockRecheck(client, {
+    const result = await withTransaction(pool, async (client) => {
+      const created = await createOrReuseStockRecheck(client, {
         salesRepId: req.user.salesRepId,
         ...input,
-      })
-    ));
-
-    await writeAudit({
-      actorId: req.user.id,
-      action: result.reused
-        ? 'stock_recheck.reused'
-        : 'stock_recheck.requested',
-      targetType: 'stock_recheck',
-      targetId: result.recheck.id,
-      ip: req.ip,
-      details: {
-        barcode: input.barcode,
-        itemType: input.itemType,
-        homeBranch: result.recheck.home_branch,
-      },
+      });
+      await writeAudit({
+        actorId: req.user.id,
+        action: created.reused
+          ? 'stock_recheck.reused'
+          : 'stock_recheck.requested',
+        targetType: 'stock_recheck',
+        targetId: created.recheck.id,
+        ip: req.ip,
+        details: {
+          barcode: input.barcode,
+          itemType: input.itemType,
+          homeBranch: created.recheck.home_branch,
+        },
+      }, client);
+      return created;
     });
+
     broadcast(result.recheck.home_branch, 'stock:recheck_requested', {
       recheckId: result.recheck.id,
       barcode: input.barcode,
@@ -156,31 +157,32 @@ router.patch('/:id', requireRole('inventory'), async (req, res, next) => {
       return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     }
     const resolution = buildStockRecheckResolution(req.body);
-    const result = await withTransaction(pool, (client) => (
-      resolveStockRecheck(client, {
+    const result = await withTransaction(pool, async (client) => {
+      const resolved = await resolveStockRecheck(client, {
         recheckId,
         actorRole: req.user.role,
         actorBranch: branch,
         actorId: req.user.id,
         resolution,
-      })
-    ));
-
-    await writeAudit({
-      actorId: req.user.id,
-      action: result.state === 'verified_available'
-        ? 'stock_recheck.verified_available'
-        : 'stock_recheck.verified_unavailable',
-      targetType: 'stock_recheck',
-      targetId: result.id,
-      ip: req.ip,
-      details: {
-        barcode: result.barcode,
-        itemType: result.item_type,
-        homeBranch: result.home_branch,
-        verifiedStatus: result.verified_status,
-      },
+      });
+      await writeAudit({
+        actorId: req.user.id,
+        action: resolved.state === 'verified_available'
+          ? 'stock_recheck.verified_available'
+          : 'stock_recheck.verified_unavailable',
+        targetType: 'stock_recheck',
+        targetId: resolved.id,
+        ip: req.ip,
+        details: {
+          barcode: resolved.barcode,
+          itemType: resolved.item_type,
+          homeBranch: resolved.home_branch,
+          verifiedStatus: resolved.verified_status,
+        },
+      }, client);
+      return resolved;
     });
+
     const { rows: repRows } = await pool.query(
       'SELECT branch FROM sales_reps WHERE id = $1',
       [result.sales_rep_id]

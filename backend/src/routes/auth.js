@@ -6,6 +6,7 @@ const { createRateLimit } = require('../middleware/rateLimit');
 const { passwordError, passwordExceedsBcryptByteLimit, hashPassword } = require('../utils/passwordSecurity');
 const { writeAudit } = require('../services/auditService');
 const { recordFailedLogin, resetSuccessfulLogin } = require('../services/loginLockoutService');
+const { withTransaction } = require('../db/withRetry');
 
 const router = express.Router();
 const GENERIC_LOGIN_ERROR = 'Incorrect email or password';
@@ -41,6 +42,17 @@ router.post('/login', loginIpLimit, loginEmailLimit, async (req, res, next) => {
     const locked = user?.locked_until && new Date(user.locked_until) > new Date();
     const ok = user && user.is_active && !locked && await bcrypt.compare(password, user.password_hash);
 
+    // DELIBERATE: the two login audits below stay OUTSIDE any transaction with
+    // the lockout counter, unlike every other audited mutation in this API.
+    //
+    // `recordFailedLogin` is the lockout control. Binding it to the audit write
+    // would mean an audit-insert failure rolls the failed-attempt increment
+    // back — turning "the audit table is unavailable" into unlimited password
+    // attempts. A missing log line is the cheaper failure than a disabled
+    // lockout. The same applies to `resetSuccessfulLogin`: rolling it back
+    // would leave stale failure counts after a valid login.
+    //
+    // Do not "fix" this for consistency with the other routes.
     if (!ok) {
       if (user && user.is_active && !locked) {
         await recordFailedLogin(user.id, pool);
@@ -110,12 +122,14 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
     const hash = await hashPassword(newPassword);
-    await pool.query(
-      `UPDATE users SET password_hash = $2, must_change_password = false,
-       token_version = token_version + 1, updated_at = now() WHERE id = $1`,
-      [req.user.id, hash]
-    );
-    await writeAudit({ actorId: req.user.id, action: 'auth.password_changed', targetType: 'user', targetId: req.user.id, ip: req.ip });
+    await withTransaction(pool, async (client) => {
+      await client.query(
+        `UPDATE users SET password_hash = $2, must_change_password = false,
+         token_version = token_version + 1, updated_at = now() WHERE id = $1`,
+        [req.user.id, hash]
+      );
+      await writeAudit({ actorId: req.user.id, action: 'auth.password_changed', targetType: 'user', targetId: req.user.id, ip: req.ip }, client);
+    });
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -124,8 +138,10 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
 
 router.post('/logout-all', requireAuth, async (req, res, next) => {
   try {
-    await pool.query('UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1', [req.user.id]);
-    await writeAudit({ actorId: req.user.id, action: 'auth.logout_all', targetType: 'user', targetId: req.user.id, ip: req.ip });
+    await withTransaction(pool, async (client) => {
+      await client.query('UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1', [req.user.id]);
+      await writeAudit({ actorId: req.user.id, action: 'auth.logout_all', targetType: 'user', targetId: req.user.id, ip: req.ip }, client);
+    });
     res.json({ ok: true });
   } catch (err) {
     next(err);

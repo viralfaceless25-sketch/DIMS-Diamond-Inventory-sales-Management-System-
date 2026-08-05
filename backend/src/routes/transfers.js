@@ -117,13 +117,13 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
         actorId: req.user.id,
         details: { action, status: nextStatus, deliveryRoute: transfer.delivery_route },
       });
+      await writeAudit({ actorId: req.user.id, action: 'transfer.status_changed', targetType: 'request', targetId: requestId, ip: req.ip, details: { action, status: nextStatus } }, client);
       return {
         ...transfer,
         transferStatus: nextStatus,
         status: nextRequestStatus,
       };
     });
-    await writeAudit({ actorId: req.user.id, action: 'transfer.status_changed', targetType: 'request', targetId: requestId, ip: req.ip, details: { action, status: result.transferStatus } });
     broadcast(result.fulfillment_branch, 'transfer:updated', { requestId, status: result.transferStatus });
     broadcast(result.destination_branch, 'transfer:updated', { requestId, status: result.transferStatus });
     res.json(result);
@@ -184,6 +184,14 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
           actorId: req.user.id,
         });
       }
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.erp_bt_issued',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: { sourceBranch: transfer.fulfillment_branch, destinationBranch: transfer.destination_branch },
+      }, client);
       return {
         ...transfer,
         erpTransferConfirmed: true,
@@ -191,14 +199,6 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
       };
     });
 
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'transfer.erp_bt_issued',
-      targetType: 'request',
-      targetId: requestId,
-      ip: req.ip,
-      details: { sourceBranch: result.fulfillment_branch, destinationBranch: result.destination_branch },
-    });
     const event = {
       requestId,
       erpTransferConfirmed: true,
@@ -278,21 +278,21 @@ router.patch('/:id/erp-unavailable', requireRole('inventory'), async (req, res, 
           reason: resolution.reason,
         },
       });
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.erp_bt_rejected',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: {
+          sourceBranch: transfer.fulfillment_branch,
+          destinationBranch: transfer.destination_branch,
+          ...resolution,
+        },
+      }, client);
       return transfer;
     });
 
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'transfer.erp_bt_rejected',
-      targetType: 'request',
-      targetId: requestId,
-      ip: req.ip,
-      details: {
-        sourceBranch: result.fulfillment_branch,
-        destinationBranch: result.destination_branch,
-        ...resolution,
-      },
-    });
     const event = {
       requestId,
       status: 'cancelled',
@@ -351,17 +351,17 @@ router.patch('/:id/request-erp-receive', requireRole('sales_rep'), async (req, r
           actorId: req.user.id,
         });
       }
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.erp_bt_receive_requested',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: { destinationBranch: transfer.destination_branch },
+      }, client);
       return transfer;
     });
 
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'transfer.erp_bt_receive_requested',
-      targetType: 'request',
-      targetId: requestId,
-      ip: req.ip,
-      details: { destinationBranch: result.destination_branch },
-    });
     const event = { requestId, erpReceiveRequested: true };
     broadcast(result.fulfillment_branch, 'transfer:updated', event);
     broadcast(result.destination_branch, 'transfer:updated', event);
@@ -419,17 +419,17 @@ router.patch('/:id/erp-received', requireRole('inventory'), async (req, res, nex
           actorId: req.user.id,
         });
       }
+      await writeAudit({
+        actorId: req.user.id,
+        action: 'transfer.erp_bt_received',
+        targetType: 'request',
+        targetId: requestId,
+        ip: req.ip,
+        details: { destinationBranch: transfer.destination_branch },
+      }, client);
       return transfer;
     });
 
-    await writeAudit({
-      actorId: req.user.id,
-      action: 'transfer.erp_bt_received',
-      targetType: 'request',
-      targetId: requestId,
-      ip: req.ip,
-      details: { destinationBranch: result.destination_branch },
-    });
     const event = { requestId, erpTransferReceived: true };
     broadcast(result.fulfillment_branch, 'transfer:updated', event);
     broadcast(result.destination_branch, 'transfer:updated', event);
@@ -489,15 +489,15 @@ router.post(
           'UPDATE requests SET paperwork_type = $2 WHERE id = $1',
           [requestId, paperworkType]
         );
+        await writeAudit({
+          actorId: req.user.id,
+          action: 'transfer.paperwork_file_uploaded',
+          targetType: 'request',
+          targetId: requestId,
+          ip: req.ip,
+          details: { paperworkType, fileName },
+        }, client);
         return locked;
-      });
-      await writeAudit({
-        actorId: req.user.id,
-        action: 'transfer.paperwork_file_uploaded',
-        targetType: 'request',
-        targetId: requestId,
-        ip: req.ip,
-        details: { paperworkType, fileName },
       });
       const event = {
         requestId,
@@ -554,15 +554,15 @@ router.post(
             req.user.id,
           ]
         );
+        await writeAudit({
+          actorId: req.user.id,
+          action: 'transfer.shipping_label_uploaded',
+          targetType: 'request',
+          targetId: requestId,
+          ip: req.ip,
+          details: { fileName },
+        }, client);
         return locked;
-      });
-      await writeAudit({
-        actorId: req.user.id,
-        action: 'transfer.shipping_label_uploaded',
-        targetType: 'request',
-        targetId: requestId,
-        ip: req.ip,
-        details: { fileName },
       });
       const event = { requestId, hasLabel: true, labelFileName: fileName };
       broadcast(transfer.fulfillment_branch, 'transfer:updated', event);
@@ -582,16 +582,28 @@ router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) 
     if (!Number.isInteger(requestId) || !['none', 'invoice', 'memo'].includes(paperworkType)) {
       return res.status(400).json({ error: 'Choose No paperwork, Invoice, or Memo' });
     }
-    const transfer = await getTransfer(requestId);
-    assertDeliveryWorkflow(transfer);
-    if (Number(transfer.workflow_version || 1) >= 2) {
-      return res.status(409).json({ error: 'Upload the actual invoice or memo file for this request' });
-    }
-    if (transfer.sales_rep_id !== req.user.salesRepId) return res.status(403).json({ error: 'You can only update paperwork for your own request' });
-    if (transfer.delivery_route !== 'customer_ship') return res.status(400).json({ error: 'Paperwork is only required for direct customer shipments' });
-    if (!['awaiting_source', 'packed'].includes(transfer.transfer_status || 'awaiting_source')) return res.status(409).json({ error: 'Paperwork can no longer be changed after shipment' });
-    await pool.query('UPDATE requests SET paperwork_type = $2 WHERE id = $1', [requestId, paperworkType]);
-    await writeAudit({ actorId: req.user.id, action: 'transfer.paperwork_updated', targetType: 'request', targetId: requestId, ip: req.ip, details: { paperworkType } });
+    // The read, the update, and the audit share one locked transaction: a
+    // separate audit write could fail after the paperwork type had already
+    // changed, leaving a committed mutation with no record of who made it.
+    const transfer = await withTransaction(pool, async (client) => {
+      const locked = await getTransfer(requestId, client, { forUpdate: true });
+      assertDeliveryWorkflow(locked);
+      if (Number(locked.workflow_version || 1) >= 2) {
+        const error = new Error('Upload the actual invoice or memo file for this request'); error.status = 409; throw error;
+      }
+      if (locked.sales_rep_id !== req.user.salesRepId) {
+        const error = new Error('You can only update paperwork for your own request'); error.status = 403; throw error;
+      }
+      if (locked.delivery_route !== 'customer_ship') {
+        const error = new Error('Paperwork is only required for direct customer shipments'); error.status = 400; throw error;
+      }
+      if (!['awaiting_source', 'packed'].includes(locked.transfer_status || 'awaiting_source')) {
+        const error = new Error('Paperwork can no longer be changed after shipment'); error.status = 409; throw error;
+      }
+      await client.query('UPDATE requests SET paperwork_type = $2 WHERE id = $1', [requestId, paperworkType]);
+      await writeAudit({ actorId: req.user.id, action: 'transfer.paperwork_updated', targetType: 'request', targetId: requestId, ip: req.ip, details: { paperworkType } }, client);
+      return locked;
+    });
     broadcast(transfer.fulfillment_branch, 'transfer:updated', { requestId, paperworkType });
     broadcast(transfer.destination_branch, 'transfer:updated', { requestId, paperworkType });
     res.json({ ok: true, paperworkType });
