@@ -4,6 +4,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { passwordError, hashPassword } = require('../utils/passwordSecurity');
 const { writeAudit } = require('../services/auditService');
 const { withTransaction } = require('../db/withRetry');
+const { parseId } = require('../utils/requestParams');
 const { clearTestData } = require('../services/testDataCleanupService');
 
 const router = express.Router();
@@ -81,9 +82,9 @@ router.post('/users', async (req, res, next) => {
 
 router.patch('/users/:id/status', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
+    const id = parseId(req.params.id);
     const isActive = req.body?.isActive;
-    if (!Number.isInteger(id) || typeof isActive !== 'boolean') return res.status(400).json({ error: 'Valid user and status are required' });
+    if (!id || typeof isActive !== 'boolean') return res.status(400).json({ error: 'Valid user and status are required' });
     if (id === req.user.id && !isActive) return res.status(400).json({ error: 'You cannot deactivate your own account' });
     // Deactivating revokes every live session. Committing that without its
     // audit row would erase who locked an account out and when, so the status
@@ -108,9 +109,9 @@ router.patch('/users/:id/status', async (req, res, next) => {
 
 router.post('/users/:id/reset-password', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
+    const id = parseId(req.params.id);
     const password = req.body?.password;
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Valid user is required' });
+    if (!id) return res.status(400).json({ error: 'Valid user is required' });
     const validationError = passwordError(password);
     if (validationError) return res.status(400).json({ error: validationError });
     const hash = await hashPassword(password);

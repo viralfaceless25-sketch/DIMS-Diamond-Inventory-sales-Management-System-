@@ -38,6 +38,7 @@ const {
   recordStoneMovement,
 } = require('../services/movementService');
 const { broadcast, emitToRoom } = require('../sockets');
+const { parseId } = require('../utils/requestParams');
 const {
   buildRequestCreatedNotification,
   inventoryRoom,
@@ -425,7 +426,8 @@ router.get('/', requireRole('inventory'), async (req, res, next) => {
 // A sales rep may only open their own request; inventory may open any.
 router.get('/:id', async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Valid request is required' });
     const { rows } = await pool.query(
       `SELECT r.id, r.branch, r.fulfillment_branch, r.delivery_branch, r.cross_branch, r.delivery_route, r.paperwork_type, r.workflow_version, r.transfer_status, r.resolution_confirmed,
               r.inventory_viewed_at, r.inventory_viewed_by, r.resolution_confirmed_at, r.resolution_confirmed_by,
@@ -508,8 +510,8 @@ router.get('/:id', async (req, res, next) => {
 // POST /api/requests/:id/viewed — first authorized inventory expansion only.
 router.post('/:id/viewed', requireRole('inventory'), async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Valid request is required' });
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Valid request is required' });
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
 
@@ -739,9 +741,15 @@ router.post('/', requireRole('sales_rep'), async (req, res, next) => {
 // Only inventory staff fulfill/return stones. Reps see this state read-only.
 router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, next) => {
   try {
-    const { id, stoneId } = req.params;
+    // Both ids used to go into the query as raw request text: a non-numeric
+    // stone id reached Postgres and came back as a 500 rather than a 400.
+    const id = parseId(req.params.id);
+    const stoneId = parseId(req.params.stoneId);
     const { field, value } = req.body;
     const allowedFields = ['stone_found', 'cert_found', 'not_found', 'returned'];
+    if (!id || !stoneId) {
+      return res.status(400).json({ error: 'Valid request and stone are required' });
+    }
     if (!allowedFields.includes(field) || typeof value !== 'boolean') {
       return res.status(400).json({ error: `field must be one of ${allowedFields.join(', ')}, value must be boolean` });
     }
@@ -840,8 +848,11 @@ router.patch('/:id/stones/:stoneId', requireRole('inventory'), async (req, res, 
 // Inventory staff only.
 router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseId(req.params.id);
     const { value, field } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: 'Valid request is required' });
+    }
     if (typeof value !== 'boolean') {
       return res.status(400).json({ error: 'value must be boolean' });
     }
@@ -953,8 +964,8 @@ router.patch('/:id/check-all', requireRole('inventory'), async (req, res, next) 
 // confirmation is required before the request leaves the active queue.
 router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Valid request is required' });
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Valid request is required' });
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const result = await withTransaction(pool, async (client) => {
@@ -1062,8 +1073,11 @@ router.patch('/:id/confirm-resolution', requireRole('inventory'), async (req, re
 
 router.get('/by-rep/:repId', async (req, res, next) => {
   try {
-    const { repId } = req.params;
-    if (req.user.role === 'sales_rep' && Number(repId) !== req.user.salesRepId) {
+    // Parsed before the ownership comparison so the number the check reads is
+    // exactly the number the query uses.
+    const repId = parseId(req.params.repId);
+    if (!repId) return res.status(400).json({ error: 'Valid sales rep is required' });
+    if (req.user.role === 'sales_rep' && repId !== req.user.salesRepId) {
       return res.status(403).json({ error: 'You can only view your own requests' });
     }
     const { rows: requests } = await pool.query(

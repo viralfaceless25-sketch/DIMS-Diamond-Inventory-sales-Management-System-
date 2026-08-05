@@ -28,6 +28,7 @@ const {
 } = require('../services/movementService');
 const { broadcast } = require('../sockets');
 const { createRateLimit } = require('../middleware/rateLimit');
+const { parseId } = require('../utils/requestParams');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -70,9 +71,9 @@ function assertDeliveryWorkflow(transfer) {
 
 router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
+    const requestId = parseId(req.params.id);
     const action = String(req.body?.action || '');
-    if (!Number.isInteger(requestId)) return res.status(400).json({ error: 'Valid request is required' });
+    if (!requestId) return res.status(400).json({ error: 'Valid request is required' });
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     const result = await withTransaction(pool, async (client) => {
@@ -143,8 +144,8 @@ router.patch('/:id/status', requireRole('inventory'), async (req, res, next) => 
 
 router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId)) return res.status(400).json({ error: 'Valid request is required' });
+    const requestId = parseId(req.params.id);
+    if (!requestId) return res.status(400).json({ error: 'Valid request is required' });
     const actorBranch = await inventoryBranch(req.user.id);
     if (!actorBranch) return res.status(403).json({ error: 'Your inventory account is missing a branch' });
 
@@ -219,8 +220,8 @@ router.patch('/:id/erp-transfer', requireRole('inventory'), async (req, res, nex
 
 router.patch('/:id/erp-unavailable', requireRole('inventory'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId)) {
+    const requestId = parseId(req.params.id);
+    if (!requestId) {
       return res.status(400).json({ error: 'Valid request is required' });
     }
     const actorBranch = await inventoryBranch(req.user.id);
@@ -311,8 +312,8 @@ router.patch('/:id/erp-unavailable', requireRole('inventory'), async (req, res, 
 
 router.patch('/:id/request-erp-receive', requireRole('sales_rep'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId)) {
+    const requestId = parseId(req.params.id);
+    if (!requestId) {
       return res.status(400).json({ error: 'Valid request is required' });
     }
 
@@ -374,8 +375,8 @@ router.patch('/:id/request-erp-receive', requireRole('sales_rep'), async (req, r
 
 router.patch('/:id/erp-received', requireRole('inventory'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId)) {
+    const requestId = parseId(req.params.id);
+    if (!requestId) {
       return res.status(400).json({ error: 'Valid request is required' });
     }
     const actorBranch = await inventoryBranch(req.user.id);
@@ -447,9 +448,9 @@ router.post(
   upload.single('paperwork'),
   async (req, res, next) => {
     try {
-      const requestId = Number(req.params.id);
+      const requestId = parseId(req.params.id);
       const paperworkType = String(req.body?.paperworkType || '');
-      if (!Number.isInteger(requestId) || !req.file) {
+      if (!requestId || !req.file) {
         return res.status(400).json({ error: 'An invoice or memo paperwork file is required' });
       }
       if (!['invoice', 'memo'].includes(paperworkType)) {
@@ -522,8 +523,8 @@ router.post(
   upload.single('label'),
   async (req, res, next) => {
     try {
-      const requestId = Number(req.params.id);
-      if (!Number.isInteger(requestId) || !req.file) {
+      const requestId = parseId(req.params.id);
+      if (!requestId || !req.file) {
         return res.status(400).json({ error: 'A shipping label file is required' });
       }
       if (!isSafeDocument(req.file.buffer, req.file.mimetype)) {
@@ -577,9 +578,9 @@ router.post(
 
 router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
+    const requestId = parseId(req.params.id);
     const paperworkType = String(req.body?.paperworkType || '');
-    if (!Number.isInteger(requestId) || !['none', 'invoice', 'memo'].includes(paperworkType)) {
+    if (!requestId || !['none', 'invoice', 'memo'].includes(paperworkType)) {
       return res.status(400).json({ error: 'Choose No paperwork, Invoice, or Memo' });
     }
     // The read, the update, and the audit share one locked transaction: a
@@ -612,7 +613,8 @@ router.patch('/:id/paperwork', requireRole('sales_rep'), async (req, res, next) 
 
 router.get('/:id/shipping-label', async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
+    const requestId = parseId(req.params.id);
+    if (!requestId) return res.status(400).json({ error: 'Valid request is required' });
     const transfer = await getTransfer(requestId);
     assertDeliveryWorkflow(transfer);
     const staffBranch = req.user.role === 'inventory' ? await inventoryBranch(req.user.id) : null;
@@ -631,8 +633,8 @@ router.get('/:id/shipping-label', async (req, res, next) => {
 
 router.get('/:id/paperwork', async (req, res, next) => {
   try {
-    const requestId = Number(req.params.id);
-    if (!Number.isInteger(requestId)) {
+    const requestId = parseId(req.params.id);
+    if (!requestId) {
       return res.status(400).json({ error: 'Valid request is required' });
     }
     const transfer = await getTransfer(requestId);

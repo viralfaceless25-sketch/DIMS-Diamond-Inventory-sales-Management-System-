@@ -11,9 +11,12 @@ const { writeAudit } = require('../services/auditService');
 const { broadcast } = require('../sockets');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { createRateLimit } = require('../middleware/rateLimit');
+const { parseId, parseEnumParam } = require('../utils/requestParams');
 
 const router = express.Router();
 router.use(requireAuth);
+
+const RECHECK_STATES = ['pending', 'verified_available', 'verified_unavailable', 'consumed'];
 
 const requestLimit = createRateLimit({
   windowMs: 60 * 60_000,
@@ -79,14 +82,16 @@ router.get('/mine', requireRole('sales_rep'), async (req, res, next) => {
 
 router.get('/queue', requireRole('inventory'), async (req, res, next) => {
   try {
+    const state = parseEnumParam(req.query.state, RECHECK_STATES, 'pending');
+    if (!state) {
+      return res.status(400).json({
+        error: `Choose one of: ${RECHECK_STATES.join(', ')}`,
+      });
+    }
     const branch = await inventoryBranch(req.user.id);
     if (!branch) {
       return res.status(403).json({ error: 'Your inventory account is missing a branch' });
     }
-    const state = ['pending', 'verified_available', 'verified_unavailable', 'consumed']
-      .includes(req.query.state)
-      ? req.query.state
-      : 'pending';
     const { rows } = await pool.query(
       `SELECT rr.*, sr.name AS sales_rep_name, verifier.email AS verifier_email
        FROM stock_recheck_requests rr
@@ -148,8 +153,8 @@ router.post('/', requireRole('sales_rep'), requestLimit, async (req, res, next) 
 
 router.patch('/:id', requireRole('inventory'), async (req, res, next) => {
   try {
-    const recheckId = Number(req.params.id);
-    if (!Number.isInteger(recheckId)) {
+    const recheckId = parseId(req.params.id);
+    if (!recheckId) {
       return res.status(400).json({ error: 'Valid stock recheck is required' });
     }
     const branch = await inventoryBranch(req.user.id);

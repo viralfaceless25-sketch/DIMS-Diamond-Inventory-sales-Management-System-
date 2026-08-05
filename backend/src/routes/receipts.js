@@ -24,6 +24,7 @@ const {
   recordStoneMovement,
 } = require('../services/movementService');
 const { broadcast } = require('../sockets');
+const { parseId } = require('../utils/requestParams');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('inventory'));
@@ -648,9 +649,9 @@ router.post('/', async (req, res, next) => {
 
 router.patch('/:id/link', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    const requestStoneId = Number(req.body?.requestStoneId);
-    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(requestStoneId) || requestStoneId <= 0) {
+    const id = parseId(req.params.id);
+    const requestStoneId = parseId(req.body?.requestStoneId);
+    if (!id || !requestStoneId) {
       throw routeError('Valid receipt and request stone are required');
     }
     const receivingBranch = await inventoryBranch(pool, req.user.id);
@@ -757,8 +758,8 @@ router.patch('/:id/link', async (req, res, next) => {
 
 router.patch('/:id', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) throw routeError('Valid receipt is required');
+    const id = parseId(req.params.id);
+    if (!id) throw routeError('Valid receipt is required');
     const receivingBranch = await inventoryBranch(pool, req.user.id);
     if (!receivingBranch) throw routeError('Your inventory account is missing a branch', 403);
     const result = await withTransaction(pool, async (client) => {
@@ -876,8 +877,8 @@ router.patch('/:id', async (req, res, next) => {
 
 router.post('/requests/:requestId/handoff', async (req, res, next) => {
   try {
-    const requestId = Number(req.params.requestId);
-    if (!Number.isInteger(requestId) || requestId <= 0) throw routeError('Valid request is required');
+    const requestId = parseId(req.params.requestId);
+    if (!requestId) throw routeError('Valid request is required');
     const receivingBranch = await inventoryBranch(pool, req.user.id);
     if (!receivingBranch) throw routeError('Your inventory account is missing a branch', 403);
     const result = await withTransaction(pool, async (client) => {
