@@ -8,7 +8,10 @@ import { useBranchSocket } from '@/lib/socket';
 import { useTheme } from '../repContext';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
-import { Copyable, NonCertBadge } from '@/components/ui';
+import { Copyable, LoadError, NonCertBadge } from '@/components/ui';
+import { useAsyncLoad } from '@/lib/useAsyncLoad';
+
+const EMPTY_TRACKING: { rows: TrackingRow[]; total: number } = { rows: [], total: 0 };
 
 const STATUS_COLOR: Record<string, string> = {
   requested: AMBER,
@@ -30,25 +33,14 @@ function formatDate(value: string) {
 export default function RepTrackingPage() {
   const { user } = useAuth();
   const { theme: t } = useTheme();
-  const [rows, setRows] = useState<TrackingRow[]>([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<Record<number, boolean>>({});
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await api.tracking('ALL', search, 1);
-      setRows(result.rows);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not load your stone tracking.');
-    } finally {
-      setLoading(false);
-    }
-  }, [search]);
+  const loader = useCallback(() => api.tracking('ALL', search, 1), [search]);
+  const { data, loading, error, reload } = useAsyncLoad(loader, EMPTY_TRACKING);
+  const rows = data.rows;
 
-  useEffect(() => { load(); }, [load]);
-  useBranchSocket(user?.branch || 'NY', () => load());
+  useBranchSocket(user?.branch || 'NY', () => reload());
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '22px 26px 26px' }}>
@@ -67,6 +59,8 @@ export default function RepTrackingPage() {
 
       {loading ? (
         <div style={{ padding: 44, textAlign: 'center', color: t.textFaint, font: "500 14px 'Inter'" }}>Loading…</div>
+      ) : error ? (
+        <LoadError message={error} onRetry={reload} t={t} />
       ) : rows.length === 0 ? (
         <div style={{ padding: 44, textAlign: 'center', background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 12, color: t.textFaint, font: "500 14px 'Inter'" }}>No tracked stones match your search.</div>
       ) : (
@@ -94,7 +88,7 @@ export default function RepTrackingPage() {
                     <div style={{ marginTop: 3, font: "600 11px 'Inter'", color: t.textFaint }}>{row.currentStockStatusLabel}</div>
                   </div>
                   <div style={{ font: "600 12.5px 'Inter'", color: t.textMuted }}>{latest?.movementLabel || 'Requested'}</div>
-                  <Link href="/rep/my-requests" onClick={(event) => event.stopPropagation()} style={{ color: ACCENT, font: "700 12.5px 'Inter'", textDecoration: 'none' }}>Request #{row.request_id}</Link>
+                  <Link href={`/rep/my-requests?requestId=${row.request_id}`} onClick={(event) => event.stopPropagation()} style={{ color: ACCENT, font: "700 12.5px 'Inter'", textDecoration: 'none' }}>Request #{row.request_id}</Link>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textFaint} strokeWidth="2" style={{ transform: expanded ? 'rotate(180deg)' : 'none' }}><path d="M6 9l6 6 6-6" /></svg>
                 </button>
 

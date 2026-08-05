@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, TrackingRow } from '@/lib/api';
+import { useAsyncLoad } from '@/lib/useAsyncLoad';
 import { useBranchSocket } from '@/lib/socket';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
-import { Copyable, NonCertBadge } from '@/components/ui';
+import { Copyable, LoadError, NonCertBadge } from '@/components/ui';
 import { ACCENT, AMBER, BLUE, GREEN, RED } from '@/lib/theme';
 import { TRACKING_LABELS } from '@/lib/utils';
 
@@ -27,6 +28,8 @@ function formatDate(value: string) {
   });
 }
 
+const EMPTY_TRACKING: { rows: TrackingRow[]; total: number } = { rows: [], total: 0 };
+
 export default function TrackingPage() {
   const { theme: t } = useTheme();
   const { user } = useAuth();
@@ -38,26 +41,15 @@ export default function TrackingPage() {
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const [certSearch, setCertSearch] = useState('');
   const search = barcodeSearch.trim() || certSearch.trim();
-  const [rows, setRows] = useState<TrackingRow[]>([]);
+
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await api.tracking(branch, search, page);
-      setRows(result.rows);
-      setTotal(result.total);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not load stone tracking.');
-    } finally {
-      setLoading(false);
-    }
-  }, [branch, search, page]);
-
-  useEffect(() => { load(); }, [load]);
+  const loader = useCallback(() => api.tracking(branch, search, page), [branch, search, page]);
+  const { data, loading, error, reload } = useAsyncLoad(loader, EMPTY_TRACKING);
+  const rows = data.rows;
+  const total = data.total;
+  const load = reload;
   useEffect(() => { setPage(1); }, [branch, search]);
   useEffect(() => {
     if (user?.branch && user.branch !== branch) setBranch(user.branch);
@@ -102,6 +94,8 @@ export default function TrackingPage() {
 
           {loading ? (
             <div style={{ padding: 44, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFainter }}>Loading…</div>
+          ) : error ? (
+            <LoadError message={error} onRetry={reload} t={t} />
           ) : rows.length === 0 ? (
             <div style={{ padding: 44, textAlign: 'center', font: "400 15px 'Inter'", color: t.textFainter }}>No stone movements match these filters.</div>
           ) : rows.map((row) => {

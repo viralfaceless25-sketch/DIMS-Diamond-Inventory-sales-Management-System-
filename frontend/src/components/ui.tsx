@@ -304,3 +304,34 @@ export function Avatar({ name, color, size = 32 }: { name: string; color: string
     </div>
   );
 }
+
+// A failed load must never be rendered as an empty result: "No stones match"
+// tells the user their data is gone when the request actually failed. This
+// states what happened and offers the retry inline, rather than a
+// window.alert that leaves the false-empty state behind once dismissed.
+export function LoadError({
+  message,
+  onRetry,
+  t,
+}: {
+  message: string;
+  onRetry: () => void;
+  t: { text: string; textFaint: string; bgCard: string; border: string };
+}) {
+  return (
+    <div
+      role="alert"
+      style={{ padding: 26, textAlign: 'center', background: t.bgCard, border: `1px solid ${RED}`, borderRadius: 12 }}
+    >
+      <div style={{ font: "700 14px 'Inter'", color: t.text }}>Could not load this list.</div>
+      <div style={{ marginTop: 5, font: "500 13px 'Inter'", color: t.textFaint }}>{message}</div>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{ marginTop: 13, padding: '8px 18px', borderRadius: 8, cursor: 'pointer', background: 'transparent', border: `1px solid ${t.border}`, color: t.text, font: "600 13px 'Inter'" }}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}

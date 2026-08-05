@@ -1,13 +1,16 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api, MyRequest, RequestStone } from '@/lib/api';
 import { useTheme } from '@/lib/ThemeProvider';
 import { TopBar } from '@/components/TopBar';
-import { Avatar, StatusBadge } from '@/components/ui';
+import { Avatar, LoadError, StatusBadge } from '@/components/ui';
+import { useAsyncLoad } from '@/lib/useAsyncLoad';
 import { ACCENT, repColor } from '@/lib/theme';
 import { fmtCarat, timeAgo } from '@/lib/utils';
+
+const EMPTY_REPS: { reps: { id: number; name: string; branch: string }[]; requests: MyRequest[] } = { reps: [], requests: [] };
 
 export default function RepHistoryPage() {
   return (
@@ -21,32 +24,21 @@ function RepHistoryContent() {
   const { theme: t } = useTheme();
   const searchParams = useSearchParams();
   const repId = Number(searchParams.get('id'));
-  const [reps, setReps] = useState<{ id: number; name: string; branch: string }[]>([]);
-  const [requests, setRequests] = useState<MyRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Previously the failure was swallowed and the page rendered "No requests
+  // for this sales rep yet", which reads as a real answer.
+  const loader = useCallback(async () => {
+    const [repRows, requestRows] = await Promise.all([
+      api.reps(),
+      Number.isFinite(repId) ? api.myRequests(repId) : Promise.resolve([]),
+    ]);
+    return { reps: repRows, requests: requestRows };
+  }, [repId]);
+  const { data, loading, error, reload } = useAsyncLoad(loader, EMPTY_REPS);
+  const reps = data.reps;
+  const requests = data.requests;
 
   const rep = useMemo(() => reps.find((r) => r.id === repId), [reps, repId]);
-
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      setLoading(true);
-      const [repRows, requestRows] = await Promise.all([
-        api.reps(),
-        Number.isFinite(repId) ? api.myRequests(repId) : Promise.resolve([]),
-      ]);
-      if (!alive) return;
-      setReps(repRows);
-      setRequests(requestRows);
-      setLoading(false);
-    }
-    load().catch(() => {
-      if (alive) setLoading(false);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [repId]);
 
   return (
     <>
@@ -63,6 +55,8 @@ function RepHistoryContent() {
 
         {loading ? (
           <Empty t={t}>Loading...</Empty>
+        ) : error ? (
+          <LoadError message={error} onRetry={reload} t={t} />
         ) : requests.length === 0 ? (
           <Empty t={t}>No requests for this sales rep yet.</Empty>
         ) : (
